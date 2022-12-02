@@ -28,6 +28,12 @@ Decimal       [1-9][0-9]*
 Octal         0[0-7]*
 Hexadecimal   0[xX][0-9a-fA-F]+
 
+/* 比较运算符 */
+RelCompare    [<>]=? 
+EqCompare     [=\!]=
+LAnd          "&&"
+LOr           "||"
+
 
 %%
 
@@ -44,7 +50,14 @@ Hexadecimal   0[xX][0-9a-fA-F]+
 {Octal}         { yylval.int_val = strtol(yytext, nullptr, 0); return INT_CONST; }
 {Hexadecimal}   { yylval.int_val = strtol(yytext, nullptr, 0); return INT_CONST; }
 
+{RelCompare}    { yylval.str_val = new string(yytext); return REL_OP; }
+{EqCompare}     { yylval.str_val = new string(yytext); return EQ_OP; }
+{LAnd}          { yylval.str_val = new string(yytext); return LAND_OP; }
+{LOr}           { yylval.str_val = new string(yytext); return LOR_OP; }
+
 
 .               { return yytext[0]; }
 
 %%
+
+

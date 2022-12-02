@@ -60,6 +60,7 @@ void CodeGen::handle(const koopa_raw_function_t &func)
     std::cout << "  .global " << func->name + 1 << std::endl;
     std::cout << func->name + 1 << ":" << std::endl;
     traverse(func->bbs);
+    std::cout << std::endl;
 }
 
 void CodeGen::handle(const koopa_raw_basic_block_t &bb)
@@ -71,11 +72,17 @@ void CodeGen::handle(const koopa_raw_value_t &value)
 {
     // 根据指令类型判断后续需要如何访问
     const auto &kind = value->kind;
+    // std::cerr << "value is " << (uintptr_t)value << std::endl;
+    // std::cerr << "&kind is " << (uintptr_t)&value->kind << std::endl;
+    // std::cerr << "instr tag is " << kind.tag << std::endl;
     switch (kind.tag)
     {
     case KOOPA_RVT_RETURN:
         // 访问 return 指令
-        instr_handler.ret_handler(kind.data.ret);
+        instr_handler.ret_handler(kind);
+        break;
+    case KOOPA_RVT_BINARY:
+        instr_handler.binary_handler(kind);
         break;
     case KOOPA_RVT_INTEGER:
         // 访问 integer 指令
@@ -85,5 +92,6 @@ void CodeGen::handle(const koopa_raw_value_t &value)
     default:
         // 其他类型暂时遇不到
         assert(false);
+        break;
     }
 }
