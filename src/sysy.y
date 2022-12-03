@@ -9,6 +9,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <string.h>
 #include "ast.h"
 
 // 声明 lexer 函数和错误处理函数
@@ -37,7 +38,7 @@ using namespace std;
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT RETURN
+%token INT RETURN CONST ASSIGN
 %token <str_val> IDENT
 %token <str_val> REL_OP
 %token <str_val> EQ_OP
@@ -46,8 +47,10 @@ using namespace std;
 %token <int_val> INT_CONST
 
 // 非终结符的类型定义
-%type <ast> FuncDef FuncType Block Stmt 
+%type <ast> FuncDef FuncType Block BlockItems BlockItem Stmt 
 %type <ast> Number PrimaryExp UnaryExp Exp AddExp MulExp RelExp EqExp LAndExp LOrExp
+%type <ast> BType
+%type <ast> Decl ConstDecl ConstDefs ConstDef ConstInitVal LVal ConstExp
 
 %%
 
@@ -94,15 +97,38 @@ FuncType
   ;
 
 Block
-  : '{' Stmt '}' {
+  : '{' BlockItems '}' {
     auto ast = new Block();
-    ast->stmt = unique_ptr<BaseAST>($2);
+    ast->block_items = unique_ptr<BaseAST>($2);
     $$ = ast;
   }
   ;
 
+BlockItems
+  : BlockItem ';' {
+    auto ast = new BlockItems();
+    ast->block_item = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | BlockItem ';' BlockItems {
+    auto ast = new BlockItems();
+    ast->block_item = unique_ptr<BaseAST>($1);
+    ast->block_items = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+
+BlockItem
+  : Decl {
+    auto ast = new BlockItem;
+    ast->decl_or_stmt = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | Stmt {
+    auto ast = new BlockItem;
+    ast->decl_or_stmt = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+
 Stmt
-  : RETURN Exp ';' {
+  : RETURN Exp {
     auto ast = new Stmt();
     ast->expr = unique_ptr<BaseAST>($2);
     $$ = ast;
@@ -126,19 +152,16 @@ UnaryExp
   } | '+' UnaryExp {
     auto ast = new UnaryExp();
     ast->unary_op = "+";
-    // std::cerr << "op is " << ast->unary_op << std::endl;
     ast->unary_or_p_expr = unique_ptr<BaseAST>($2);
     $$ = ast;
   } | '-' UnaryExp {
     auto ast = new UnaryExp();
     ast->unary_op = "-";
-    // std::cerr << "op is " << ast->unary_op << std::endl;
     ast->unary_or_p_expr = unique_ptr<BaseAST>($2);
     $$ = ast;
   } | '!' UnaryExp {
     auto ast = new UnaryExp();
     ast->unary_op = "!";
-    // std::cerr << "op is " << ast->unary_op << std::endl;
     ast->unary_or_p_expr = unique_ptr<BaseAST>($2);
     $$ = ast;
   }
@@ -147,11 +170,15 @@ UnaryExp
 PrimaryExp
   : '(' Exp ')' {
     auto ast = new PrimaryExp();
-    ast->expr_or_num = unique_ptr<BaseAST>($2);
+    ast->expr_or_num_or_lval = unique_ptr<BaseAST>($2);
     $$ = ast;
   } | Number {
     auto ast = new PrimaryExp();
-    ast->expr_or_num = unique_ptr<BaseAST>($1);
+    ast->expr_or_num_or_lval = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | LVal {
+    auto ast = new PrimaryExp();
+    ast->expr_or_num_or_lval = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
   ;
@@ -267,10 +294,87 @@ LOrExp
   }
   ;
 
+LVal
+  : IDENT {
+    auto ast = new LVal();
+    ast->ident = *unique_ptr<string>($1);
+    $$ = ast;
+  }
+  ;
+
+ConstExp
+  : Exp {
+    auto ast = new ConstExp();
+    ast->expr = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  ;
+
+ConstInitVal
+  : ConstExp {
+    auto ast = new ConstInitVal();
+    ast->const_expr = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  ;
+
+ConstDef
+  : IDENT ASSIGN ConstInitVal {
+    auto ast = new ConstDef();
+    ast->ident = *unique_ptr<string>($1);
+    ast->const_initval = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  ;
+
+ConstDefs
+  : ConstDef {
+    auto ast = new ConstDefs();
+    ast->const_def = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | ConstDef ',' ConstDefs {
+    auto ast = new ConstDefs();
+    ast->const_def = unique_ptr<BaseAST>($1);
+    ast->const_defs = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+
+BType
+  : INT {
+    auto ast = new BType();
+    ast->type = "int";
+    $$ = ast;
+  }
+  ;
+
+
+ConstDecl
+  : CONST BType ConstDefs {
+    auto ast = new ConstDecl();
+    ast->btype = unique_ptr<BaseAST>($2);
+    ast->const_defs = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+
+Decl
+  : ConstDecl {
+    auto ast = new Decl();
+    ast->const_decl = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
 %%
 
 // 定义错误处理函数, 其中第二个参数是错误信息
 // parser 如果发生错误 (例如输入的程序出现了语法错误), 就会调用这个函数
 void yyerror(unique_ptr<BaseAST> &ast, const char *s) {
-  cerr << "error: " << s << endl;
+  extern int yylineno;    // defined and maintained in lex
+  extern char *yytext;    // defined and maintained in lex
+  int len=strlen(yytext);
+  int i;
+  char buf[512]={0};
+  for (i=0;i<len;++i)
+  {
+      sprintf(buf,"%s %d ",buf,yytext[i]);
+  }
+  fprintf(stderr, "ERROR: %s at symbol '%s' on line %d\n", s, buf, yylineno);
 }

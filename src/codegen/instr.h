@@ -71,8 +71,11 @@ public:
     void ret_handler(const koopa_raw_value_kind_t &kind)
     {
         assert(kind.tag == KOOPA_RVT_RETURN);
-
-        std::cout << "  mv  a0, " << regs[binstr_outregs[(uintptr_t)&kind.data.ret.value->kind]] << std::endl;
+        auto &ret = kind.data.ret;
+        if (ret.value->kind.tag == KOOPA_RVT_BINARY)
+            std::cout << "  mv  a0, " << regs[binstr_outregs[(uintptr_t)&kind.data.ret.value->kind]] << std::endl;
+        else if (ret.value->kind.tag == KOOPA_RVT_INTEGER)
+            std::cout << "  li a0, " << ret.value->kind.data.integer.value << std::endl;
         std::cout << "  ret" << std::endl;
     }
 

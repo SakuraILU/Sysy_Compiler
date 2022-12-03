@@ -3,9 +3,11 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <assert.h>
 
 static int nstmt = 0;
+static std::unordered_map<std::string, int> constvals;
 
 // 所有 AST 的基类
 class BaseAST
@@ -14,6 +16,12 @@ public:
     virtual ~BaseAST() = default;
 
     virtual void Dump() const = 0;
+
+    virtual int Calc()
+    {
+        std::cerr << "unimplemented" << std::endl;
+        assert(false);
+    }
 };
 
 // CompUnit 是 BaseAST
@@ -62,16 +70,39 @@ public:
 class Block : public BaseAST
 {
 public:
-    std::unique_ptr<BaseAST> stmt;
+    std::unique_ptr<BaseAST> block_items;
     void Dump() const override
     {
         std::cout << "{ " << std::endl;
         std::cout << "\%entry:" << std::endl;
-        stmt->Dump();
+        block_items->Dump();
         std::cout << "}";
         // std::cout << "BlockAST { ";
         // stmt->Dump();
         // std::cout << " }";
+    }
+};
+
+class BlockItems : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> block_item;
+    std::unique_ptr<BaseAST> block_items;
+    void Dump() const override
+    {
+        block_item->Dump();
+        if (block_items != nullptr)
+            block_items->Dump();
+    }
+};
+
+class BlockItem : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> decl_or_stmt;
+    void Dump() const override
+    {
+        decl_or_stmt->Dump();
     }
 };
 
@@ -81,8 +112,7 @@ public:
     std::unique_ptr<BaseAST> expr;
     void Dump() const override
     {
-        expr->Dump();
-        std::cout << "  ret %" << nstmt - 1 << std::endl;
+        std::cout << "  ret " << expr->Calc() << std::endl;
     }
 };
 
@@ -95,15 +125,11 @@ public:
         std::cout << "  %" << nstmt << " = sub " << num << ", 0" << std::endl;
         ++nstmt;
     }
-};
 
-class Exp : public BaseAST
-{
-public:
-    std::unique_ptr<BaseAST> lor_expr;
-    void Dump() const override
+    int Calc() override
     {
-        lor_expr->Dump();
+        std::cerr << "number is " << num << std::endl;
+        return num;
     }
 };
 
@@ -111,11 +137,13 @@ class PrimaryExp : public BaseAST
 {
 public:
     // bool is_expr;
-    std::unique_ptr<BaseAST> expr_or_num;
+    std::unique_ptr<BaseAST> expr_or_num_or_lval;
     void Dump() const override
     {
-        expr_or_num->Dump();
+        expr_or_num_or_lval->Dump();
     }
+
+    int Calc() override { return expr_or_num_or_lval->Calc(); }
 };
 
 class UnaryExp : public BaseAST
@@ -138,6 +166,21 @@ public:
             assert(false);
 
         ++nstmt;
+    }
+
+    int Calc() override
+    {
+        if (!unary_op.empty())
+            if (unary_op.compare("-") == 0)
+                return -unary_or_p_expr->Calc();
+            else if (unary_op.compare("!") == 0)
+                return !unary_or_p_expr->Calc();
+            else if (unary_op.compare("+") == 0)
+                return unary_or_p_expr->Calc();
+            else
+                assert(false);
+        else
+            return unary_or_p_expr->Calc();
     }
 };
 
@@ -169,6 +212,21 @@ public:
 
         ++nstmt;
     }
+
+    int Calc() override
+    {
+        if (!mul_op.empty())
+            if (mul_op.compare("*") == 0)
+                return mul_expr->Calc() * unary_expr->Calc();
+            else if (mul_op.compare("/") == 0)
+                return mul_expr->Calc() / unary_expr->Calc();
+            else if (mul_op.compare("%") == 0)
+                return mul_expr->Calc() % unary_expr->Calc();
+            else
+                assert(false);
+        else
+            return unary_expr->Calc();
+    }
 };
 
 class AddExp : public BaseAST
@@ -197,6 +255,19 @@ public:
             assert(false);
 
         ++nstmt;
+    }
+
+    int Calc() override
+    {
+        if (!add_op.empty())
+            if (add_op.compare("+") == 0)
+                return add_expr->Calc() + mul_expr->Calc();
+            else if (add_op.compare("-") == 0)
+                return add_expr->Calc() - mul_expr->Calc();
+            else
+                assert(false);
+        else
+            return mul_expr->Calc();
     }
 };
 
@@ -231,6 +302,23 @@ public:
 
         ++nstmt;
     }
+
+    int Calc() override
+    {
+        if (!rel_op.empty())
+            if (rel_op.compare("<") == 0)
+                return rel_expr->Calc() < add_expr->Calc();
+            else if (rel_op.compare(">") == 0)
+                return rel_expr->Calc() > add_expr->Calc();
+            else if (rel_op.compare("<=") == 0)
+                return rel_expr->Calc() <= add_expr->Calc();
+            else if (rel_op.compare(">=") == 0)
+                return rel_expr->Calc() >= add_expr->Calc();
+            else
+                assert(false);
+        else
+            return add_expr->Calc();
+    }
 };
 
 class EqExp : public BaseAST
@@ -259,6 +347,19 @@ public:
             assert(false);
 
         ++nstmt;
+    }
+
+    int Calc() override
+    {
+        if (!eq_op.empty())
+            if (eq_op.compare("==") == 0)
+                return eq_expr->Calc() == rel_expr->Calc();
+            else if (eq_op.compare("!=") == 0)
+                return eq_expr->Calc() != rel_expr->Calc();
+            else
+                assert(false);
+        else
+            return rel_expr->Calc();
     }
 };
 
@@ -290,6 +391,17 @@ public:
 
         ++nstmt;
     }
+
+    int Calc() override
+    {
+        if (!land_op.empty())
+            return land_expr->Calc() && eq_expr->Calc();
+        else
+        {
+            std::cerr << "eq_expr" << std::endl;
+            return eq_expr->Calc();
+        }
+    }
 };
 
 class LOrExp : public BaseAST
@@ -320,5 +432,129 @@ public:
             assert(false);
 
         ++nstmt;
+    }
+
+    int Calc() override
+    {
+        if (!lor_op.empty())
+            return lor_expr->Calc() || land_expr->Calc();
+        else
+        {
+            std::cerr << "land expr" << std::endl;
+            return land_expr->Calc();
+        }
+    }
+};
+
+class Exp : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> lor_expr;
+    void Dump() const override
+    {
+        lor_expr->Dump();
+    }
+
+    int Calc() override
+    {
+        std::cerr << "expr " << std::endl;
+        return lor_expr->Calc();
+    }
+};
+
+class LVal : public BaseAST
+{
+public:
+    std::string ident;
+    void Dump() const override
+    {
+    }
+
+    int Calc() override { return constvals[ident]; }
+};
+
+class ConstExp : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> expr;
+    void Dump() const override
+    {
+    }
+
+    int Calc() override
+    {
+        std::cerr << "const_expr " << std::endl;
+        return expr->Calc();
+    }
+};
+
+class ConstInitVal : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> const_expr;
+    void Dump() const override
+    {
+    }
+
+    int Calc() override
+    {
+        std::cerr << "constinitval " << std::endl;
+        return const_expr->Calc();
+    }
+};
+
+class ConstDef : public BaseAST
+{
+public:
+    std::string ident;
+    std::unique_ptr<BaseAST> const_initval;
+    void Dump() const override
+    {
+        constvals[ident] = const_initval->Calc();
+        std::cerr << "get const value " << ident << ": " << constvals[ident] << std::endl;
+    }
+};
+
+class ConstDefs : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> const_def;
+    std::unique_ptr<BaseAST> const_defs;
+    void Dump() const override
+    {
+        const_def->Dump();
+        if (const_defs != nullptr)
+            const_defs->Dump();
+    }
+};
+
+class BType : public BaseAST
+{
+public:
+    std::string type;
+    void Dump() const override
+    {
+        assert(type.compare("int"));
+    }
+};
+
+class ConstDecl : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> btype;
+    std::unique_ptr<BaseAST> const_defs;
+    void Dump() const override
+    {
+        const_defs->Dump();
+    }
+};
+
+class Decl : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> const_decl;
+    void Dump() const override
+    {
+        const_decl->Dump();
     }
 };
