@@ -45,7 +45,7 @@ private:
         auto &rkind = binary.rhs->kind;
         if (rkind.tag == KOOPA_RVT_INTEGER)
         {
-            std::cerr << "rhs" << std::endl;
+            // std::cerr << "rhs" << std::endl;
             if (rkind.data.integer.value == 0)
             {
                 rreg = "x0";
@@ -216,8 +216,9 @@ public:
 
     void store_handler(const koopa_raw_value_kind_t &kind)
     {
+        assert(nreg < NREG);
         auto &store = kind.data.store;
-        std::cerr << "tag is " << store.dest->kind.tag << std::endl;
+        // std::cerr << "tag is " << store.dest->kind.tag << std::endl;
         if (stk_offsets.count((uintptr_t)&store.dest->kind) == 0)
         {
             stk_offsets[(uintptr_t)&store.dest->kind] = max_offset;
@@ -230,16 +231,15 @@ public:
 
     void load_handler(const koopa_raw_value_kind_t &kind)
     {
+        assert(nreg < NREG);
         auto &load = kind.data.load;
 
-        std::cerr << "tag is " << load.src->kind.tag << std::endl;
+        // std::cerr << "tag is " << load.src->kind.tag << std::endl;
         assert(stk_offsets.count((uintptr_t)&load.src->kind.data.store.dest->kind) == 0);
         std::cout << "  lw " << regs[nreg] << ", " << stk_offsets[(uintptr_t)&load.src->kind] << "(sp)" << std::endl;
 
         stk_offsets[(uintptr_t)&kind] = max_offset;
         max_offset += 4;
         std::cout << "  sw " << regs[nreg] << ", " << stk_offsets[(uintptr_t)&kind] << "(sp)" << std::endl;
-
-        nreg++;
     }
 };

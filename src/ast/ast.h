@@ -3,27 +3,12 @@
 #include <iostream>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <assert.h>
+#include "vartable.h"
 
 static int nstmt = 0;
 
-namespace VarType
-{
-    enum
-    {
-        CONST,
-        VARIABLE
-    };
-}
-
-typedef struct val
-{
-    int type;
-    int data;
-} Val;
-
-static std::unordered_map<std::string, Val> val_table;
+static LocalVarTable local_vartable;
 
 // 所有 AST 的基类
 class BaseAST
@@ -35,7 +20,7 @@ public:
 
     virtual int Calc()
     {
-        // std::cerr << "unimplemented" << std::endl;
+        std::cerr << "unimplemented" << std::endl;
         assert(false);
     }
 };
@@ -49,9 +34,7 @@ public:
 
     void Dump() const override
     {
-        // std::cout << "CompUnitAST { ";
         func_def->Dump();
-        // std::cout << " }" << std::endl;
     }
 };
 
@@ -67,7 +50,10 @@ public:
     {
         std::cout << "fun @" << ident << "(): ";
         func_type->Dump();
+        std::cout << "{ " << std::endl;
+        std::cout << "\%entry:" << std::endl;
         block->Dump();
+        std::cout << "}";
         std::cout << std::endl;
     }
 };
@@ -89,13 +75,13 @@ public:
     std::unique_ptr<BaseAST> block_items;
     void Dump() const override
     {
-        std::cout << "{ " << std::endl;
-        std::cout << "\%entry:" << std::endl;
+        if (block_items == nullptr)
+            return;
+        local_vartable.push_table();
+        // std::cerr << "alloc table " << local_vartable.get_curbid() << std::endl;
         block_items->Dump();
-        std::cout << "}";
-        // std::cout << "BlockAST { ";
-        // stmt->Dump();
-        // std::cout << " }";
+
+        local_vartable.pop_table();
     }
 };
 
@@ -125,20 +111,33 @@ public:
 class Stmt : public BaseAST
 {
 public:
+    bool isret = false;
     std::unique_ptr<BaseAST> lval;
     std::unique_ptr<BaseAST> expr;
+    std::unique_ptr<BaseAST> block;
+
     void Dump() const override
     {
-        if (lval == nullptr)
+        if (block != nullptr)
         {
-            expr->Dump();
-            std::cout << "  ret %" << nstmt - 1 << std::endl;
+            block->Dump();
+            return;
         }
-        else
+
+        if (lval == nullptr && expr == nullptr)
+            return;
+        else if (lval == nullptr)
+            expr->Dump();
+        else if (lval != nullptr && expr != nullptr)
         {
             expr->Dump();
             lval->Dump();
         }
+        else
+            assert(false);
+
+        if (isret)
+            std::cout << "  ret %" << nstmt - 1 << std::endl;
     }
 };
 
@@ -154,7 +153,6 @@ public:
 
     int Calc() override
     {
-        // std::cerr << "number is " << num << std::endl;
         return num;
     }
 };
@@ -272,7 +270,6 @@ public:
         add_expr->Dump();
         int lreg = nstmt - 1;
 
-        // //std::cerr << "add op is " << add_op << std::endl;
         if (add_op.compare("+") == 0)
             std::cout << "  %" << nstmt << " = add %" << lreg << ", %" << rreg << std::endl;
         else if (add_op.compare("-") == 0)
@@ -314,7 +311,6 @@ public:
         rel_expr->Dump();
         int lreg = nstmt - 1;
 
-        // //std::cerr << "add op is " << add_op << std::endl;
         if (rel_op.compare("<") == 0)
             std::cout << "  %" << nstmt << " = lt %" << lreg << ", %" << rreg << std::endl;
         else if (rel_op.compare(">") == 0)
@@ -364,7 +360,6 @@ public:
         eq_expr->Dump();
         int lreg = nstmt - 1;
 
-        // //std::cerr << "add op is " << add_op << std::endl;
         if (eq_op.compare("==") == 0)
             std::cout << "  %" << nstmt << " = eq %" << lreg << ", %" << rreg << std::endl;
         else if (eq_op.compare("!=") == 0)
@@ -424,7 +419,6 @@ public:
             return land_expr->Calc() && eq_expr->Calc();
         else
         {
-            // std::cerr << "eq_expr" << std::endl;
             return eq_expr->Calc();
         }
     }
@@ -447,7 +441,6 @@ public:
         lor_expr->Dump();
         int lreg = nstmt - 1;
 
-        // //std::cerr << "add op is " << add_op << std::endl;
         if (lor_op.compare("||") == 0)
         {
             std::cout << "  %" << nstmt++ << " = ne %" << lreg << ", 0" << std::endl;
@@ -466,7 +459,6 @@ public:
             return lor_expr->Calc() || land_expr->Calc();
         else
         {
-            // std::cerr << "land expr" << std::endl;
             return land_expr->Calc();
         }
     }
@@ -483,7 +475,6 @@ public:
 
     int Calc() override
     {
-        // std::cerr << "expr " << std::endl;
         return lor_expr->Calc();
     }
 };
@@ -494,10 +485,11 @@ public:
     std::string ident;
     void Dump() const override
     {
-        assert(val_table.count(ident) != 0);
-        assert(val_table[ident].type == VarType::VARIABLE);
+        LocalVarTable::Entry entry = local_vartable.find_entry(this->ident);
 
-        std::cout << "  store %" << nstmt - 1 << ", @" << ident << std::endl;
+        assert(entry.type == LocalVarTable::VARIABLE);
+
+        std::cout << "  store %" << nstmt - 1 << ", @" << entry.ident << std::endl;
     }
 };
 
@@ -507,20 +499,23 @@ public:
     std::string ident;
     void Dump() const override
     {
-        assert(val_table.count(ident) != 0);
+        LocalVarTable::Entry entry = local_vartable.find_entry(this->ident);
 
-        if (val_table[ident].type == VarType::VARIABLE)
-            std::cout << "  %" << nstmt++ << " = load @" << ident << std::endl;
-        else if (val_table[ident].type == VarType::CONST)
-            std::cout << "  %" << nstmt++ << " = add " << val_table[ident].data << ", 0" << std::endl;
+        // assert(cur_table_node->val_table.count(ident) != 0);
+
+        if (entry.type == LocalVarTable::VARIABLE)
+            std::cout << "  %" << nstmt++ << " = load @" << entry.ident << std::endl;
+        else if (entry.type == LocalVarTable::CONST)
+            std::cout << "  %" << nstmt++ << " = add " << entry.data << ", 0" << std::endl;
     }
 
     int Calc() override
     {
-        assert(val_table.count(ident) != 0);
-        assert(val_table[ident].type == VarType::CONST);
+        LocalVarTable::Entry entry = local_vartable.find_entry(this->ident);
 
-        return val_table[ident].data;
+        assert(entry.type == LocalVarTable::CONST);
+
+        return entry.data;
     }
 };
 
@@ -534,7 +529,6 @@ public:
 
     int Calc() override
     {
-        // std::cerr << "const_expr " << std::endl;
         return expr->Calc();
     }
 };
@@ -549,7 +543,6 @@ public:
 
     int Calc() override
     {
-        // std::cerr << "constinitval " << std::endl;
         return const_expr->Calc();
     }
 };
@@ -561,11 +554,10 @@ public:
     std::unique_ptr<BaseAST> const_initval;
     void Dump() const override
     {
-        assert(val_table.count(ident) == 0);
         assert(const_initval != nullptr);
 
-        val_table[ident] = {.type = VarType::CONST, .data = const_initval->Calc()};
-        // std::cerr << "get const value " << ident << ": " << constvals[ident] << std::endl;
+        LocalVarTable::Entry entry = {.ident = ident, .type = LocalVarTable::CONST, .data = const_initval->Calc()};
+        local_vartable.add_entry(entry);
     }
 };
 
@@ -644,15 +636,15 @@ public:
     std::unique_ptr<BaseAST> initval;
     void Dump() const override
     {
-        assert(val_table.count(ident) == 0);
+        LocalVarTable::Entry entry = {.ident = ident, .type = LocalVarTable::VARIABLE};
+        local_vartable.add_entry(entry);
 
-        val_table[ident] = {.type = VarType::VARIABLE};
-
-        std::cout << "  @" << ident << " = alloc i32" << std::endl;
+        std::string actual_ident = local_vartable.cvt2acutal_ident(ident);
+        std::cout << "  @" << actual_ident << " = alloc i32" << std::endl;
         if (initval != nullptr)
         {
             initval->Dump();
-            std::cout << "  store %" << nstmt - 1 << ", @" << ident << std::endl;
+            std::cout << "  store %" << nstmt - 1 << ", @" << actual_ident << std::endl;
         }
     }
 };

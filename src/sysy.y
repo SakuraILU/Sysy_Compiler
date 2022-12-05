@@ -1,7 +1,7 @@
 %code requires {
   #include <memory>
   #include <string>
-  #include "ast.h"
+  #include "ast/ast.h"
 }
 
 %{
@@ -10,7 +10,7 @@
 #include <memory>
 #include <string>
 #include <string.h>
-#include "ast.h"
+#include "ast/ast.h"
 
 // 声明 lexer 函数和错误处理函数
 int yylex();
@@ -102,18 +102,21 @@ Block
     auto ast = new Block();
     ast->block_items = unique_ptr<BaseAST>($2);
     $$ = ast;
+  } | '{' '}'{
+    auto ast = new Block();
+    $$ = ast;
   }
   ;
 
 BlockItems
-  : BlockItem ';' {
+  : BlockItem {
     auto ast = new BlockItems();
     ast->block_item = unique_ptr<BaseAST>($1);
     $$ = ast;
-  } | BlockItem ';' BlockItems {
+  } | BlockItem BlockItems {
     auto ast = new BlockItems();
     ast->block_item = unique_ptr<BaseAST>($1);
-    ast->block_items = unique_ptr<BaseAST>($3);
+    ast->block_items = unique_ptr<BaseAST>($2);
     $$ = ast;
   }
 
@@ -129,14 +132,30 @@ BlockItem
   }
 
 Stmt
-  : RETURN Exp {
+  : RETURN Exp ';' {
     auto ast = new Stmt();
+    ast->isret = true;
     ast->expr = unique_ptr<BaseAST>($2);
     $$ = ast;
-  } | LVal ASSIGN Exp {
+  } | RETURN ';' {
+    auto ast = new Stmt();
+    ast->isret = true;
+    $$ = ast;
+  } | LVal ASSIGN Exp ';' {
     auto ast = new Stmt();
     ast->lval = unique_ptr<BaseAST>($1);
     ast->expr = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  } | Exp ';' {
+    auto ast = new Stmt();
+    ast->expr = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | ';' {
+    auto ast = new Stmt();
+    $$ = ast;
+  } | Block {
+    auto ast = new Stmt();
+    ast->block = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
   ;
@@ -372,11 +391,11 @@ ConstDecl
   ;
 
 Decl
-  : ConstDecl {
+  : ConstDecl ';' {
     auto ast = new Decl();
     ast->decl = unique_ptr<BaseAST>($1);
     $$ = ast;
-  } | VarDecl {
+  } | VarDecl ';' {
     auto ast = new Decl();
     ast->decl = unique_ptr<BaseAST>($1);
     $$ = ast;
