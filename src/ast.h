@@ -7,7 +7,23 @@
 #include <assert.h>
 
 static int nstmt = 0;
-static std::unordered_map<std::string, int> constvals;
+
+namespace VarType
+{
+    enum
+    {
+        CONST,
+        VARIABLE
+    };
+}
+
+typedef struct val
+{
+    int type;
+    int data;
+} Val;
+
+static std::unordered_map<std::string, Val> val_table;
 
 // 所有 AST 的基类
 class BaseAST
@@ -19,7 +35,7 @@ public:
 
     virtual int Calc()
     {
-        std::cerr << "unimplemented" << std::endl;
+        // std::cerr << "unimplemented" << std::endl;
         assert(false);
     }
 };
@@ -109,10 +125,20 @@ public:
 class Stmt : public BaseAST
 {
 public:
+    std::unique_ptr<BaseAST> lval;
     std::unique_ptr<BaseAST> expr;
     void Dump() const override
     {
-        std::cout << "  ret " << expr->Calc() << std::endl;
+        if (lval == nullptr)
+        {
+            expr->Dump();
+            std::cout << "  ret %" << nstmt - 1 << std::endl;
+        }
+        else
+        {
+            expr->Dump();
+            lval->Dump();
+        }
     }
 };
 
@@ -122,13 +148,13 @@ public:
     int num;
     void Dump() const override
     {
-        std::cout << "  %" << nstmt << " = sub " << num << ", 0" << std::endl;
+        std::cout << "  %" << nstmt << " = add " << num << ", 0" << std::endl;
         ++nstmt;
     }
 
     int Calc() override
     {
-        std::cerr << "number is " << num << std::endl;
+        // std::cerr << "number is " << num << std::endl;
         return num;
     }
 };
@@ -137,13 +163,13 @@ class PrimaryExp : public BaseAST
 {
 public:
     // bool is_expr;
-    std::unique_ptr<BaseAST> expr_or_num_or_lval;
+    std::unique_ptr<BaseAST> expr_or_num_or_lval_or_rval;
     void Dump() const override
     {
-        expr_or_num_or_lval->Dump();
+        expr_or_num_or_lval_or_rval->Dump();
     }
 
-    int Calc() override { return expr_or_num_or_lval->Calc(); }
+    int Calc() override { return expr_or_num_or_lval_or_rval->Calc(); }
 };
 
 class UnaryExp : public BaseAST
@@ -246,7 +272,7 @@ public:
         add_expr->Dump();
         int lreg = nstmt - 1;
 
-        // std::cerr << "add op is " << add_op << std::endl;
+        // //std::cerr << "add op is " << add_op << std::endl;
         if (add_op.compare("+") == 0)
             std::cout << "  %" << nstmt << " = add %" << lreg << ", %" << rreg << std::endl;
         else if (add_op.compare("-") == 0)
@@ -288,7 +314,7 @@ public:
         rel_expr->Dump();
         int lreg = nstmt - 1;
 
-        // std::cerr << "add op is " << add_op << std::endl;
+        // //std::cerr << "add op is " << add_op << std::endl;
         if (rel_op.compare("<") == 0)
             std::cout << "  %" << nstmt << " = lt %" << lreg << ", %" << rreg << std::endl;
         else if (rel_op.compare(">") == 0)
@@ -338,7 +364,7 @@ public:
         eq_expr->Dump();
         int lreg = nstmt - 1;
 
-        // std::cerr << "add op is " << add_op << std::endl;
+        // //std::cerr << "add op is " << add_op << std::endl;
         if (eq_op.compare("==") == 0)
             std::cout << "  %" << nstmt << " = eq %" << lreg << ", %" << rreg << std::endl;
         else if (eq_op.compare("!=") == 0)
@@ -398,7 +424,7 @@ public:
             return land_expr->Calc() && eq_expr->Calc();
         else
         {
-            std::cerr << "eq_expr" << std::endl;
+            // std::cerr << "eq_expr" << std::endl;
             return eq_expr->Calc();
         }
     }
@@ -421,7 +447,7 @@ public:
         lor_expr->Dump();
         int lreg = nstmt - 1;
 
-        // std::cerr << "add op is " << add_op << std::endl;
+        // //std::cerr << "add op is " << add_op << std::endl;
         if (lor_op.compare("||") == 0)
         {
             std::cout << "  %" << nstmt++ << " = ne %" << lreg << ", 0" << std::endl;
@@ -440,7 +466,7 @@ public:
             return lor_expr->Calc() || land_expr->Calc();
         else
         {
-            std::cerr << "land expr" << std::endl;
+            // std::cerr << "land expr" << std::endl;
             return land_expr->Calc();
         }
     }
@@ -457,7 +483,7 @@ public:
 
     int Calc() override
     {
-        std::cerr << "expr " << std::endl;
+        // std::cerr << "expr " << std::endl;
         return lor_expr->Calc();
     }
 };
@@ -468,9 +494,34 @@ public:
     std::string ident;
     void Dump() const override
     {
+        assert(val_table.count(ident) != 0);
+        assert(val_table[ident].type == VarType::VARIABLE);
+
+        std::cout << "  store %" << nstmt - 1 << ", @" << ident << std::endl;
+    }
+};
+
+class RVal : public BaseAST
+{
+public:
+    std::string ident;
+    void Dump() const override
+    {
+        assert(val_table.count(ident) != 0);
+
+        if (val_table[ident].type == VarType::VARIABLE)
+            std::cout << "  %" << nstmt++ << " = load @" << ident << std::endl;
+        else if (val_table[ident].type == VarType::CONST)
+            std::cout << "  %" << nstmt++ << " = add " << val_table[ident].data << ", 0" << std::endl;
     }
 
-    int Calc() override { return constvals[ident]; }
+    int Calc() override
+    {
+        assert(val_table.count(ident) != 0);
+        assert(val_table[ident].type == VarType::CONST);
+
+        return val_table[ident].data;
+    }
 };
 
 class ConstExp : public BaseAST
@@ -483,7 +534,7 @@ public:
 
     int Calc() override
     {
-        std::cerr << "const_expr " << std::endl;
+        // std::cerr << "const_expr " << std::endl;
         return expr->Calc();
     }
 };
@@ -498,7 +549,7 @@ public:
 
     int Calc() override
     {
-        std::cerr << "constinitval " << std::endl;
+        // std::cerr << "constinitval " << std::endl;
         return const_expr->Calc();
     }
 };
@@ -510,8 +561,11 @@ public:
     std::unique_ptr<BaseAST> const_initval;
     void Dump() const override
     {
-        constvals[ident] = const_initval->Calc();
-        std::cerr << "get const value " << ident << ": " << constvals[ident] << std::endl;
+        assert(val_table.count(ident) == 0);
+        assert(const_initval != nullptr);
+
+        val_table[ident] = {.type = VarType::CONST, .data = const_initval->Calc()};
+        // std::cerr << "get const value " << ident << ": " << constvals[ident] << std::endl;
     }
 };
 
@@ -552,9 +606,63 @@ public:
 class Decl : public BaseAST
 {
 public:
-    std::unique_ptr<BaseAST> const_decl;
+    std::unique_ptr<BaseAST> decl;
     void Dump() const override
     {
-        const_decl->Dump();
+        decl->Dump();
+    }
+};
+
+class VarDecl : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> btype;
+    std::unique_ptr<BaseAST> var_defs;
+    void Dump() const override
+    {
+        var_defs->Dump();
+    }
+};
+
+class VarDefs : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> var_def;
+    std::unique_ptr<BaseAST> var_defs;
+    void Dump() const override
+    {
+        var_def->Dump();
+        if (var_defs != nullptr)
+            var_defs->Dump();
+    }
+};
+
+class VarDef : public BaseAST
+{
+public:
+    std::string ident;
+    std::unique_ptr<BaseAST> initval;
+    void Dump() const override
+    {
+        assert(val_table.count(ident) == 0);
+
+        val_table[ident] = {.type = VarType::VARIABLE};
+
+        std::cout << "  @" << ident << " = alloc i32" << std::endl;
+        if (initval != nullptr)
+        {
+            initval->Dump();
+            std::cout << "  store %" << nstmt - 1 << ", @" << ident << std::endl;
+        }
+    }
+};
+
+class InitVal : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> expr;
+    void Dump() const override
+    {
+        expr->Dump();
     }
 };

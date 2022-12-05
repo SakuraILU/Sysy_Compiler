@@ -59,8 +59,10 @@ void CodeGen::handle(const koopa_raw_function_t &func)
 {
     std::cout << "  .global " << func->name + 1 << std::endl;
     std::cout << func->name + 1 << ":" << std::endl;
+    std::cout << "  addi sp, sp, -256" << std::endl;
     traverse(func->bbs);
-    std::cout << std::endl;
+    std::cout << "  addi sp, sp, 256" << std::endl;
+    std::cout << "  ret" << std::endl;
 }
 
 void CodeGen::handle(const koopa_raw_basic_block_t &bb)
@@ -82,6 +84,7 @@ void CodeGen::handle(const koopa_raw_value_t &value)
         instr_handler.ret_handler(kind);
         break;
     case KOOPA_RVT_BINARY:
+        // 访问二进制运算指令
         instr_handler.binary_handler(kind);
         break;
     case KOOPA_RVT_INTEGER:
@@ -89,9 +92,20 @@ void CodeGen::handle(const koopa_raw_value_t &value)
         // Visit(kind.data.integer);
         assert(false);
         break;
+    case KOOPA_RVT_STORE:
+    {
+        instr_handler.store_handler(kind);
+        break;
+    }
+    case KOOPA_RVT_LOAD:
+        instr_handler.load_handler(kind);
+        break;
+    case KOOPA_RVT_ALLOC:
+        break;
     default:
         // 其他类型暂时遇不到
         assert(false);
         break;
     }
+    std::cout << std::endl;
 }

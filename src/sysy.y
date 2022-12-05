@@ -50,7 +50,8 @@ using namespace std;
 %type <ast> FuncDef FuncType Block BlockItems BlockItem Stmt 
 %type <ast> Number PrimaryExp UnaryExp Exp AddExp MulExp RelExp EqExp LAndExp LOrExp
 %type <ast> BType
-%type <ast> Decl ConstDecl ConstDefs ConstDef ConstInitVal LVal ConstExp
+%type <ast> Decl ConstDecl ConstDefs ConstDef ConstInitVal LVal RVal ConstExp 
+%type <ast> VarDecl VarDefs VarDef InitVal 
 
 %%
 
@@ -132,6 +133,11 @@ Stmt
     auto ast = new Stmt();
     ast->expr = unique_ptr<BaseAST>($2);
     $$ = ast;
+  } | LVal ASSIGN Exp {
+    auto ast = new Stmt();
+    ast->lval = unique_ptr<BaseAST>($1);
+    ast->expr = unique_ptr<BaseAST>($3);
+    $$ = ast;
   }
   ;
 
@@ -170,15 +176,15 @@ UnaryExp
 PrimaryExp
   : '(' Exp ')' {
     auto ast = new PrimaryExp();
-    ast->expr_or_num_or_lval = unique_ptr<BaseAST>($2);
+    ast->expr_or_num_or_lval_or_rval = unique_ptr<BaseAST>($2);
     $$ = ast;
   } | Number {
     auto ast = new PrimaryExp();
-    ast->expr_or_num_or_lval = unique_ptr<BaseAST>($1);
+    ast->expr_or_num_or_lval_or_rval = unique_ptr<BaseAST>($1);
     $$ = ast;
-  } | LVal {
+  } | RVal {
     auto ast = new PrimaryExp();
-    ast->expr_or_num_or_lval = unique_ptr<BaseAST>($1);
+    ast->expr_or_num_or_lval_or_rval = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
   ;
@@ -302,6 +308,14 @@ LVal
   }
   ;
 
+RVal
+  : IDENT {
+    auto ast = new RVal();
+    ast->ident = *unique_ptr<string>($1);
+    $$ = ast;
+  }
+  ;
+
 ConstExp
   : Exp {
     auto ast = new ConstExp();
@@ -355,13 +369,64 @@ ConstDecl
     ast->const_defs = unique_ptr<BaseAST>($3);
     $$ = ast;
   }
+  ;
 
 Decl
   : ConstDecl {
     auto ast = new Decl();
-    ast->const_decl = unique_ptr<BaseAST>($1);
+    ast->decl = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | VarDecl {
+    auto ast = new Decl();
+    ast->decl = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
+  ;
+
+VarDecl
+  : BType VarDefs {
+    auto ast = new VarDecl();
+    ast->btype = unique_ptr<BaseAST>($1);
+    ast->var_defs = unique_ptr<BaseAST>($2);
+    $$ = ast;
+  }
+  ;
+
+VarDefs
+  : VarDef {
+    auto ast = new VarDefs();
+    ast->var_def = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | VarDef ',' VarDefs {
+    auto ast = new VarDefs();
+    ast->var_def = unique_ptr<BaseAST>($1);
+    ast->var_defs = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  ;
+
+VarDef
+  : IDENT {
+    auto ast = new VarDef();
+    ast->ident = *unique_ptr<string>($1);
+    $$ = ast;
+  } | IDENT ASSIGN InitVal {
+    auto ast = new VarDef();
+    ast->ident = *unique_ptr<string>($1);
+    ast->initval = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+
+InitVal
+  : Exp {
+    auto ast = new InitVal();
+    ast->expr = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+
+
+
+
 %%
 
 // 定义错误处理函数, 其中第二个参数是错误信息
@@ -374,7 +439,7 @@ void yyerror(unique_ptr<BaseAST> &ast, const char *s) {
   char buf[512]={0};
   for (i=0;i<len;++i)
   {
-      sprintf(buf,"%s %d ",buf,yytext[i]);
+      sprintf(buf,"%s %c ",buf,yytext[i]);
   }
   fprintf(stderr, "ERROR: %s at symbol '%s' on line %d\n", s, buf, yylineno);
 }
