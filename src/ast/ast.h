@@ -5,8 +5,12 @@
 #include <string>
 #include <assert.h>
 #include "vartable.h"
+#include "ifstmt.h"
 
-static int nstmt = 0;
+static int nhold = 0;
+static IFStmtId nif;
+
+static bool sureret = false;
 
 static LocalVarTable local_vartable;
 
@@ -105,39 +109,99 @@ public:
     void Dump() const override
     {
         decl_or_stmt->Dump();
+        // std::cout << std::endl;
     }
 };
 
 class Stmt : public BaseAST
 {
 public:
-    bool isret = false;
-    std::unique_ptr<BaseAST> lval;
-    std::unique_ptr<BaseAST> expr;
-    std::unique_ptr<BaseAST> block;
+    std::unique_ptr<BaseAST> stmt;
 
     void Dump() const override
     {
-        if (block != nullptr)
-        {
-            block->Dump();
+        if (stmt == nullptr)
             return;
-        }
 
-        if (lval == nullptr && expr == nullptr)
+        if (sureret)
             return;
-        else if (lval == nullptr)
+
+        stmt->Dump();
+    }
+};
+
+class ReturnStmt : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> expr;
+    void Dump() const override
+    {
+        if (expr != nullptr)
             expr->Dump();
-        else if (lval != nullptr && expr != nullptr)
-        {
-            expr->Dump();
+        std::cout << "  ret %" << nhold - 1 << std::endl;
+        sureret = true;
+    }
+};
+
+class AssignStmt : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> lval;
+    std::unique_ptr<BaseAST> expr;
+    void Dump() const override
+    {
+        expr->Dump();
+        if (lval != nullptr)
             lval->Dump();
-        }
-        else
-            assert(false);
+    }
+};
 
-        if (isret)
-            std::cout << "  ret %" << nstmt - 1 << std::endl;
+class IfStmt : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> cond;
+    std::unique_ptr<BaseAST> if_stmt;
+    std::unique_ptr<BaseAST> else_stmt;
+    void Dump() const override
+    {
+        nif.push_if();
+
+        int ifret = false, elseret = false;
+        cond->Dump();
+        if (else_stmt != nullptr)
+            std::cout << "  br %" << nhold - 1 << ", \%then_" << nif.get_curfid() << ", \%else_" << nif.get_curfid() << std::endl;
+        else
+            std::cout << "  br %" << nhold - 1 << ", \%then_" << nif.get_curfid() << ", \%end_" << nif.get_curfid() << std::endl;
+        std::cout << "%then_" << nif.get_curfid() << ":" << std::endl;
+        if_stmt->Dump();
+        ifret = sureret;
+        if (sureret)
+            sureret = false;
+        else
+            std::cout << "  jump \%end_" << nif.get_curfid() << std::endl;
+
+        if (else_stmt != nullptr)
+        {
+            std::cout << "\%else_" << nif.get_curfid() << ": " << std::endl;
+            else_stmt->Dump();
+            elseret = sureret;
+            if (sureret)
+                sureret = false;
+            else
+                std::cout << "  jump \%end_" << nif.get_curfid() << std::endl;
+        }
+
+        if (else_stmt != nullptr)
+        {
+            if (ifret && elseret)
+            {
+                sureret = true;
+                nif.pop_if();
+                return;
+            }
+        }
+        std::cout << "\%end_" << nif.get_curfid() << ":" << std::endl;
+        nif.pop_if();
     }
 };
 
@@ -147,8 +211,8 @@ public:
     int num;
     void Dump() const override
     {
-        std::cout << "  %" << nstmt << " = add " << num << ", 0" << std::endl;
-        ++nstmt;
+        std::cout << "  %" << nhold << " = add " << num << ", 0" << std::endl;
+        ++nhold;
     }
 
     int Calc() override
@@ -183,13 +247,13 @@ public:
             return;
 
         if (unary_op.compare("-") == 0)
-            std::cout << "  %" << nstmt << " = sub 0, %" << nstmt - 1 << std::endl;
+            std::cout << "  %" << nhold << " = sub 0, %" << nhold - 1 << std::endl;
         else if (unary_op.compare("!") == 0)
-            std::cout << "  %" << nstmt << " = eq %" << nstmt - 1 << ", 0" << std::endl;
+            std::cout << "  %" << nhold << " = eq %" << nhold - 1 << ", 0" << std::endl;
         else
             assert(false);
 
-        ++nstmt;
+        ++nhold;
     }
 
     int Calc() override
@@ -217,24 +281,24 @@ public:
     void Dump() const override
     {
         unary_expr->Dump();
-        int rreg = nstmt - 1;
+        int rreg = nhold - 1;
 
         if (mul_op.empty())
             return;
 
         mul_expr->Dump();
-        int lreg = nstmt - 1;
+        int lreg = nhold - 1;
 
         if (mul_op.compare("*") == 0)
-            std::cout << "  %" << nstmt << " = mul %" << lreg << ", %" << rreg << std::endl;
+            std::cout << "  %" << nhold << " = mul %" << lreg << ", %" << rreg << std::endl;
         else if (mul_op.compare("/") == 0)
-            std::cout << "  %" << nstmt << " = div %" << lreg << ", %" << rreg << std::endl;
+            std::cout << "  %" << nhold << " = div %" << lreg << ", %" << rreg << std::endl;
         else if (mul_op.compare("%") == 0)
-            std::cout << "  %" << nstmt << " = mod %" << lreg << ", %" << rreg << std::endl;
+            std::cout << "  %" << nhold << " = mod %" << lreg << ", %" << rreg << std::endl;
         else
             assert(false);
 
-        ++nstmt;
+        ++nhold;
     }
 
     int Calc() override
@@ -262,22 +326,22 @@ public:
     void Dump() const override
     {
         mul_expr->Dump();
-        int rreg = nstmt - 1;
+        int rreg = nhold - 1;
 
         if (add_op.empty())
             return;
 
         add_expr->Dump();
-        int lreg = nstmt - 1;
+        int lreg = nhold - 1;
 
         if (add_op.compare("+") == 0)
-            std::cout << "  %" << nstmt << " = add %" << lreg << ", %" << rreg << std::endl;
+            std::cout << "  %" << nhold << " = add %" << lreg << ", %" << rreg << std::endl;
         else if (add_op.compare("-") == 0)
-            std::cout << "  %" << nstmt << " = sub %" << lreg << ", %" << rreg << std::endl;
+            std::cout << "  %" << nhold << " = sub %" << lreg << ", %" << rreg << std::endl;
         else
             assert(false);
 
-        ++nstmt;
+        ++nhold;
     }
 
     int Calc() override
@@ -303,26 +367,26 @@ public:
     void Dump() const override
     {
         add_expr->Dump();
-        int rreg = nstmt - 1;
+        int rreg = nhold - 1;
 
         if (rel_op.empty())
             return;
 
         rel_expr->Dump();
-        int lreg = nstmt - 1;
+        int lreg = nhold - 1;
 
         if (rel_op.compare("<") == 0)
-            std::cout << "  %" << nstmt << " = lt %" << lreg << ", %" << rreg << std::endl;
+            std::cout << "  %" << nhold << " = lt %" << lreg << ", %" << rreg << std::endl;
         else if (rel_op.compare(">") == 0)
-            std::cout << "  %" << nstmt << " = gt %" << lreg << ", %" << rreg << std::endl;
+            std::cout << "  %" << nhold << " = gt %" << lreg << ", %" << rreg << std::endl;
         else if (rel_op.compare("<=") == 0)
-            std::cout << "  %" << nstmt << " = le %" << lreg << ", %" << rreg << std::endl;
+            std::cout << "  %" << nhold << " = le %" << lreg << ", %" << rreg << std::endl;
         else if (rel_op.compare(">=") == 0)
-            std::cout << "  %" << nstmt << " = ge %" << lreg << ", %" << rreg << std::endl;
+            std::cout << "  %" << nhold << " = ge %" << lreg << ", %" << rreg << std::endl;
         else
             assert(false);
 
-        ++nstmt;
+        ++nhold;
     }
 
     int Calc() override
@@ -352,22 +416,22 @@ public:
     void Dump() const override
     {
         rel_expr->Dump();
-        int rreg = nstmt - 1;
+        int rreg = nhold - 1;
 
         if (eq_op.empty())
             return;
 
         eq_expr->Dump();
-        int lreg = nstmt - 1;
+        int lreg = nhold - 1;
 
         if (eq_op.compare("==") == 0)
-            std::cout << "  %" << nstmt << " = eq %" << lreg << ", %" << rreg << std::endl;
+            std::cout << "  %" << nhold << " = eq %" << lreg << ", %" << rreg << std::endl;
         else if (eq_op.compare("!=") == 0)
-            std::cout << "  %" << nstmt << " = ne %" << lreg << ", %" << rreg << std::endl;
+            std::cout << "  %" << nhold << " = ne %" << lreg << ", %" << rreg << std::endl;
         else
             assert(false);
 
-        ++nstmt;
+        ++nhold;
     }
 
     int Calc() override
@@ -387,35 +451,64 @@ public:
 class LAndExp : public BaseAST
 {
 public:
-    std::string land_op;
     std::unique_ptr<BaseAST> land_expr;
     std::unique_ptr<BaseAST> eq_expr;
     void Dump() const override
     {
-        eq_expr->Dump();
-        int rreg = nstmt - 1;
+        // eq_expr->Dump();
+        // int rreg = nhold - 1;
 
-        if (land_op.empty())
+        // if (land_op.empty())
+        //     return;
+
+        // land_expr->Dump();
+        // int lreg = nhold - 1;
+
+        // if (land_op.compare("&&") == 0)
+        // {
+        //     std::cout << "  %" << nhold++ << " = ne %" << lreg << ", 0" << std::endl;
+        //     std::cout << "  %" << nhold++ << " = ne %" << rreg << ", 0" << std::endl;
+        //     std::cout << "  %" << nhold << " = and %" << nhold - 1 << ", %" << nhold - 2 << std::endl;
+        // }
+        // else
+        //     assert(false);
+
+        // ++nhold;
+
+        if (land_expr == nullptr)
+        {
+            eq_expr->Dump();
             return;
+        }
+
+        nif.push_if();
 
         land_expr->Dump();
-        int lreg = nstmt - 1;
+        int lreg = nhold - 1;
+        int lout = (nhold++);
+        std::cout << "  %" << lout << " = ne %" << lreg << ", 0" << std::endl;
+        std::cout << "  @andresult__" << nif.get_curfid() << " = alloc i32" << std::endl;
+        std::cout << "  store %" << lout << ", @andresult__" << nif.get_curfid() << std::endl;
+        std::cout << "  br %" << lout << ", \%end_" << nif.get_curfid() << ", \%then_" << nif.get_curfid() << std::endl;
+        std::cout << "%then_" << nif.get_curfid() << ":" << std::endl;
 
-        if (land_op.compare("&&") == 0)
-        {
-            std::cout << "  %" << nstmt++ << " = ne %" << lreg << ", 0" << std::endl;
-            std::cout << "  %" << nstmt++ << " = ne %" << rreg << ", 0" << std::endl;
-            std::cout << "  %" << nstmt << " = and %" << nstmt - 1 << ", %" << nstmt - 2 << std::endl;
-        }
-        else
-            assert(false);
+        eq_expr->Dump();
+        int rreg = nhold - 1;
+        int rlout = (nhold++);
+        std::cout << "  %" << rlout << " = ne %" << rreg << ", 0" << std::endl;
+        std::cout << "  %" << nhold++ << " = and %" << lout << ", %" << rlout << std::endl;
+        std::cout << "  store %" << nhold - 1 << ", @andresult__" << nif.get_curfid() << std::endl;
+        std::cout << "  jump \%end_" << nif.get_curfid() << std::endl;
 
-        ++nstmt;
+        std::cout << "\%end_" << nif.get_curfid() << ":" << std::endl;
+        std::cout << "  %" << nhold++ << " = load @andresult__" << nif.get_curfid() << std::endl;
+
+        nif.pop_if();
     }
 
     int Calc() override
     {
-        if (!land_op.empty())
+        if (land_expr != nullptr)
             return land_expr->Calc() && eq_expr->Calc();
         else
         {
@@ -427,35 +520,61 @@ public:
 class LOrExp : public BaseAST
 {
 public:
-    std::string lor_op;
     std::unique_ptr<BaseAST> lor_expr;
     std::unique_ptr<BaseAST> land_expr;
     void Dump() const override
     {
-        land_expr->Dump();
-        int rreg = nstmt - 1;
+        // land_expr->Dump();
+        // int rreg = nhold - 1;
 
-        if (lor_op.empty())
+        // if (lor_op.empty())
+        //     return;
+
+        // lor_expr->Dump();
+        // int lreg = nhold - 1;
+
+        // if (lor_op.compare("||") == 0)
+        // {
+        //     std::cout << "  %" << nhold++ << " = ne %" << lreg << ", 0" << std::endl;
+        //     std::cout << "  %" << nhold++ << " = ne %" << rreg << ", 0" << std::endl;
+        //     std::cout << "  %" << nhold++ << " = or %" << nhold - 1 << ", %" << nhold - 2 << std::endl;
+        // }
+        // else
+        //     assert(false);
+        if (lor_expr == nullptr)
+        {
+            land_expr->Dump();
             return;
+        }
+
+        nif.push_if();
 
         lor_expr->Dump();
-        int lreg = nstmt - 1;
+        int lreg = nhold - 1;
+        int lout = (nhold++);
+        std::cout << "  %" << lout << " = ne %" << lreg << ", 0" << std::endl;
+        std::cout << "  @orresult__" << nif.get_curfid() << " = alloc i32" << std::endl;
+        std::cout << "  store %" << lout << ", @orresult__" << nif.get_curfid() << std::endl;
+        std::cout << "  br %" << lout << ", \%end_" << nif.get_curfid() << ", \%then_" << nif.get_curfid() << std::endl;
+        std::cout << "%then_" << nif.get_curfid() << ":" << std::endl;
 
-        if (lor_op.compare("||") == 0)
-        {
-            std::cout << "  %" << nstmt++ << " = ne %" << lreg << ", 0" << std::endl;
-            std::cout << "  %" << nstmt++ << " = ne %" << rreg << ", 0" << std::endl;
-            std::cout << "  %" << nstmt << " = or %" << nstmt - 1 << ", %" << nstmt - 2 << std::endl;
-        }
-        else
-            assert(false);
+        land_expr->Dump();
+        int rreg = nhold - 1;
+        int rlout = (nhold++);
+        std::cout << "  %" << rlout << " = ne %" << rreg << ", 0" << std::endl;
+        std::cout << "  %" << nhold++ << " = or %" << lout << ", %" << rlout << std::endl;
+        std::cout << "  store %" << nhold - 1 << ", @orresult__" << nif.get_curfid() << std::endl;
+        std::cout << "  jump \%end_" << nif.get_curfid() << std::endl;
 
-        ++nstmt;
+        std::cout << "\%end_" << nif.get_curfid() << ":" << std::endl;
+        std::cout << "  %" << nhold++ << " = load @orresult__" << nif.get_curfid() << std::endl;
+
+        nif.pop_if();
     }
 
     int Calc() override
     {
-        if (!lor_op.empty())
+        if (lor_expr != nullptr)
             return lor_expr->Calc() || land_expr->Calc();
         else
         {
@@ -489,7 +608,7 @@ public:
 
         assert(entry.type == LocalVarTable::VARIABLE);
 
-        std::cout << "  store %" << nstmt - 1 << ", @" << entry.ident << std::endl;
+        std::cout << "  store %" << nhold - 1 << ", @" << entry.ident << std::endl;
     }
 };
 
@@ -504,9 +623,9 @@ public:
         // assert(cur_table_node->val_table.count(ident) != 0);
 
         if (entry.type == LocalVarTable::VARIABLE)
-            std::cout << "  %" << nstmt++ << " = load @" << entry.ident << std::endl;
+            std::cout << "  %" << nhold++ << " = load @" << entry.ident << std::endl;
         else if (entry.type == LocalVarTable::CONST)
-            std::cout << "  %" << nstmt++ << " = add " << entry.data << ", 0" << std::endl;
+            std::cout << "  %" << nhold++ << " = add " << entry.data << ", 0" << std::endl;
     }
 
     int Calc() override
@@ -644,7 +763,7 @@ public:
         if (initval != nullptr)
         {
             initval->Dump();
-            std::cout << "  store %" << nstmt - 1 << ", @" << actual_ident << std::endl;
+            std::cout << "  store %" << nhold - 1 << ", @" << actual_ident << std::endl;
         }
     }
 };

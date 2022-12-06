@@ -108,14 +108,21 @@ public:
 
     void ret_handler(const koopa_raw_value_kind_t &kind)
     {
+        std::cerr << "ret" << std::endl;
         assert(kind.tag == KOOPA_RVT_RETURN);
         auto &ret = kind.data.ret;
         if (ret.value->kind.tag == KOOPA_RVT_BINARY || ret.value->kind.tag == KOOPA_RVT_LOAD)
         {
             std::cout << "  lw  a0, " << stk_offsets[(uintptr_t)&ret.value->kind] << "(sp)" << std::endl;
+            std::cout << "  addi sp, sp, 256" << std::endl;
+            std::cout << "  ret" << std::endl;
         }
         else if (ret.value->kind.tag == KOOPA_RVT_INTEGER)
+        {
             std::cout << "  li a0, " << ret.value->kind.data.integer.value << std::endl;
+            std::cout << "  addi sp, sp, 256" << std::endl;
+            std::cout << "  ret" << std::endl;
+        }
     }
 
     void binary_handler(const koopa_raw_value_kind_t &kind)
@@ -135,8 +142,8 @@ public:
         {
         case KOOPA_RBO_NOT_EQ:
         {
-            std::cout << "  and  " << regs[nreg] << ", " << lreg << ", " << rreg << std::endl;
-            std::cout << "  seqz  " << regs[nreg] << ", " << regs[nreg] << std::endl;
+            std::cout << "  xor  " << regs[nreg] << ", " << lreg << ", " << rreg << std::endl;
+            std::cout << "  snez  " << regs[nreg] << ", " << regs[nreg] << std::endl;
             break;
         }
         case KOOPA_RBO_EQ:
@@ -241,5 +248,21 @@ public:
         stk_offsets[(uintptr_t)&kind] = max_offset;
         max_offset += 4;
         std::cout << "  sw " << regs[nreg] << ", " << stk_offsets[(uintptr_t)&kind] << "(sp)" << std::endl;
+    }
+
+    void branch_handler(const koopa_raw_value_kind_t &kind)
+    {
+        assert(kind.tag == KOOPA_RVT_BRANCH);
+        auto &branch = kind.data.branch;
+        std::cout << "  lw " << regs[nreg] << ", " << stk_offsets[(uintptr_t)&branch.cond->kind] << "(sp)" << std::endl;
+        std::cout << "  bnez " << regs[nreg] << ", " << branch.true_bb->name + 1 << std::endl;
+        std::cout << "  j " << branch.false_bb->name + 1 << std::endl;
+    }
+
+    void jump_handler(const koopa_raw_value_kind_t &kind)
+    {
+        assert(kind.tag == KOOPA_RVT_JUMP);
+        auto &jump = kind.data.jump;
+        std::cout << "  j " << jump.target->name + 1 << std::endl;
     }
 };

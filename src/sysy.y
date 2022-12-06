@@ -38,7 +38,7 @@ using namespace std;
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT RETURN CONST ASSIGN
+%token INT RETURN CONST ASSIGN IF ELSE
 %token <str_val> IDENT
 %token <str_val> REL_OP
 %token <str_val> EQ_OP
@@ -47,7 +47,7 @@ using namespace std;
 %token <int_val> INT_CONST
 
 // 非终结符的类型定义
-%type <ast> FuncDef FuncType Block BlockItems BlockItem Stmt 
+%type <ast> FuncDef FuncType Block BlockItems BlockItem Stmt ReturnStmt AssignStmt IfStmt
 %type <ast> Number PrimaryExp UnaryExp Exp AddExp MulExp RelExp EqExp LAndExp LOrExp
 %type <ast> BType
 %type <ast> Decl ConstDecl ConstDefs ConstDef ConstInitVal LVal RVal ConstExp 
@@ -132,33 +132,65 @@ BlockItem
   }
 
 Stmt
-  : RETURN Exp ';' {
+  : ReturnStmt {
     auto ast = new Stmt();
-    ast->isret = true;
-    ast->expr = unique_ptr<BaseAST>($2);
+    ast->stmt = unique_ptr<BaseAST>($1);
     $$ = ast;
-  } | RETURN ';' {
+  } | AssignStmt {
     auto ast = new Stmt();
-    ast->isret = true;
-    $$ = ast;
-  } | LVal ASSIGN Exp ';' {
-    auto ast = new Stmt();
-    ast->lval = unique_ptr<BaseAST>($1);
-    ast->expr = unique_ptr<BaseAST>($3);
-    $$ = ast;
-  } | Exp ';' {
-    auto ast = new Stmt();
-    ast->expr = unique_ptr<BaseAST>($1);
+    ast->stmt = unique_ptr<BaseAST>($1);
     $$ = ast;
   } | ';' {
     auto ast = new Stmt();
     $$ = ast;
   } | Block {
     auto ast = new Stmt();
-    ast->block = unique_ptr<BaseAST>($1);
+    ast->stmt = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | IfStmt {
+    auto ast = new Stmt();
+    ast->stmt = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
   ;
+
+ReturnStmt
+  : RETURN Exp ';' {
+    auto ast = new ReturnStmt();
+    ast->expr = unique_ptr<BaseAST>($2);
+    $$ = ast;
+  } | RETURN ';' {
+    auto ast = new Stmt();
+    $$ = ast;
+  }
+  ;
+
+AssignStmt
+  : LVal ASSIGN Exp ';' {
+    auto ast = new AssignStmt();
+    ast->lval = unique_ptr<BaseAST>($1);
+    ast->expr = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  } | Exp ';' {
+    auto ast = new AssignStmt();
+    ast->expr = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  ;
+
+IfStmt
+  : IF '(' Exp ')' Stmt {
+    auto ast = new IfStmt();
+    ast->cond = unique_ptr<BaseAST>($3);
+    ast->if_stmt = unique_ptr<BaseAST>($5);
+    $$ = ast;
+  } | IF '(' Exp ')' Stmt ELSE Stmt {
+    auto ast = new IfStmt();
+    ast->cond = unique_ptr<BaseAST>($3);
+    ast->if_stmt = unique_ptr<BaseAST>($5);
+    ast->else_stmt = unique_ptr<BaseAST>($7);
+    $$ = ast;
+  }
 
 Number
   : INT_CONST {
@@ -294,11 +326,9 @@ EqExp
 LAndExp
   : EqExp{
     auto ast = new LAndExp();
-    ast->land_op = "";
     ast->eq_expr = unique_ptr<BaseAST>($1);
   } | LAndExp LAND_OP EqExp {
     auto ast = new LAndExp();
-    ast->land_op = *unique_ptr<string>($2);
     ast->land_expr = unique_ptr<BaseAST>($1);
     ast->eq_expr = unique_ptr<BaseAST>($3);
     $$ = ast;
@@ -308,11 +338,9 @@ LAndExp
 LOrExp
   : LAndExp{
     auto ast = new LOrExp();
-    ast->lor_op = "";
     ast->land_expr = unique_ptr<BaseAST>($1);
   } | LOrExp LOR_OP LAndExp {
     auto ast = new LOrExp();
-    ast->lor_op = *unique_ptr<string>($2);
     ast->lor_expr = unique_ptr<BaseAST>($1);
     ast->land_expr = unique_ptr<BaseAST>($3);
     $$ = ast;
@@ -442,6 +470,7 @@ InitVal
     ast->expr = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
+
 
 
 

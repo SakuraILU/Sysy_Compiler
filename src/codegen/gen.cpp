@@ -57,16 +57,17 @@ void CodeGen::traverse(const koopa_raw_slice_t &slice)
 
 void CodeGen::handle(const koopa_raw_function_t &func)
 {
+    instr_handler.reset();
     std::cout << "  .global " << func->name + 1 << std::endl;
     std::cout << func->name + 1 << ":" << std::endl;
     std::cout << "  addi sp, sp, -256" << std::endl;
     traverse(func->bbs);
-    std::cout << "  addi sp, sp, 256" << std::endl;
-    std::cout << "  ret" << std::endl;
 }
 
 void CodeGen::handle(const koopa_raw_basic_block_t &bb)
 {
+    if (bb->name != nullptr)
+        std::cout << bb->name + 1 << ":" << std::endl;
     traverse(bb->insts);
 }
 
@@ -80,32 +81,55 @@ void CodeGen::handle(const koopa_raw_value_t &value)
     switch (kind.tag)
     {
     case KOOPA_RVT_RETURN:
+    {
         // 访问 return 指令
         instr_handler.ret_handler(kind);
         break;
+    }
     case KOOPA_RVT_BINARY:
+    {
         // 访问二进制运算指令
         instr_handler.binary_handler(kind);
         break;
+    }
     case KOOPA_RVT_INTEGER:
+    {
         // 访问 integer 指令
         // Visit(kind.data.integer);
         assert(false);
         break;
+    }
     case KOOPA_RVT_STORE:
     {
         instr_handler.store_handler(kind);
         break;
     }
     case KOOPA_RVT_LOAD:
+    {
         instr_handler.load_handler(kind);
         break;
+    }
     case KOOPA_RVT_ALLOC:
+    {
         break;
+    }
+    case KOOPA_RVT_BRANCH:
+    {
+        instr_handler.branch_handler(kind);
+        break;
+    }
+    case KOOPA_RVT_JUMP:
+    {
+        instr_handler.jump_handler(kind);
+        break;
+    }
     default:
+    {
         // 其他类型暂时遇不到
+        std::cerr << "unsupported tag " << kind.tag << std::endl;
         assert(false);
         break;
+    }
     }
     std::cout << std::endl;
 }
