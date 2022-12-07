@@ -46,6 +46,9 @@ Hexadecimal   0[xX][0-9a-fA-F]+
 "const"         { return CONST; }
 "if"            { return IF; }
 "else"          { return ELSE; }
+"while"         { return WHILE; }
+"continue"      { return CONTINUE; }
+"break"         { return BREAK; }
 
 {RelCompare}    { yylval.str_val = new string(yytext); return REL_OP; }
 {EqCompare}     { yylval.str_val = new string(yytext); return EQ_OP; }

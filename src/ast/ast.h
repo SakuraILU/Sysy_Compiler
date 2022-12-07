@@ -5,12 +5,13 @@
 #include <string>
 #include <assert.h>
 #include "vartable.h"
-#include "ifstmt.h"
+#include "stmtid.h"
 
 static int nhold = 0;
-static IFStmtId nif;
+static StmtId nif;
+static StmtId nwhile;
 
-static bool sureret = false;
+static bool surestop = false;
 
 static LocalVarTable local_vartable;
 
@@ -123,7 +124,7 @@ public:
         if (stmt == nullptr)
             return;
 
-        if (sureret)
+        if (surestop)
             return;
 
         stmt->Dump();
@@ -139,7 +140,7 @@ public:
         if (expr != nullptr)
             expr->Dump();
         std::cout << "  ret %" << nhold - 1 << std::endl;
-        sureret = true;
+        surestop = true;
     }
 };
 
@@ -164,44 +165,92 @@ public:
     std::unique_ptr<BaseAST> else_stmt;
     void Dump() const override
     {
-        nif.push_if();
+        nif.push_stmt();
 
         int ifret = false, elseret = false;
         cond->Dump();
         if (else_stmt != nullptr)
-            std::cout << "  br %" << nhold - 1 << ", \%then_" << nif.get_curfid() << ", \%else_" << nif.get_curfid() << std::endl;
+            std::cout << "  br %" << nhold - 1 << ", \%if_if_then_" << nif.get_curid() << ", \%if_else_" << nif.get_curid() << std::endl;
         else
-            std::cout << "  br %" << nhold - 1 << ", \%then_" << nif.get_curfid() << ", \%end_" << nif.get_curfid() << std::endl;
-        std::cout << "%then_" << nif.get_curfid() << ":" << std::endl;
+            std::cout << "  br %" << nhold - 1 << ", \%if_if_then_" << nif.get_curid() << ", \%if_end_" << nif.get_curid() << std::endl;
+        std::cout << "%if_if_then_" << nif.get_curid() << ":" << std::endl;
         if_stmt->Dump();
-        ifret = sureret;
-        if (sureret)
-            sureret = false;
+        ifret = surestop;
+        if (surestop)
+            surestop = false;
         else
-            std::cout << "  jump \%end_" << nif.get_curfid() << std::endl;
+            std::cout << "  jump \%if_end_" << nif.get_curid() << std::endl;
 
         if (else_stmt != nullptr)
         {
-            std::cout << "\%else_" << nif.get_curfid() << ": " << std::endl;
+            std::cout << "\%if_else_" << nif.get_curid() << ": " << std::endl;
             else_stmt->Dump();
-            elseret = sureret;
-            if (sureret)
-                sureret = false;
+            elseret = surestop;
+            if (surestop)
+                surestop = false;
             else
-                std::cout << "  jump \%end_" << nif.get_curfid() << std::endl;
+                std::cout << "  jump \%if_end_" << nif.get_curid() << std::endl;
         }
 
         if (else_stmt != nullptr)
         {
             if (ifret && elseret)
             {
-                sureret = true;
-                nif.pop_if();
+                surestop = true;
+                nif.pop_stmt();
                 return;
             }
         }
-        std::cout << "\%end_" << nif.get_curfid() << ":" << std::endl;
-        nif.pop_if();
+        std::cout << "\%if_end_" << nif.get_curid() << ":" << std::endl;
+        nif.pop_stmt();
+    }
+};
+
+class WhileStmt : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> cond;
+    std::unique_ptr<BaseAST> body;
+    void Dump() const override
+    {
+        nwhile.push_stmt();
+
+        std::cout << "  jump %while_entry_" << nwhile.get_curid() << std::endl;
+        std::cout << "%while_entry_" << nwhile.get_curid() << ":" << std::endl;
+        cond->Dump();
+        int cond = nhold - 1;
+        std::cout << "  br %" << cond << ", %while_body_" << nwhile.get_curid() << ", \%while_end_" << nwhile.get_curid() << std::endl;
+
+        std::cout << "%while_body_" << nwhile.get_curid() << ":" << std::endl;
+        body->Dump();
+        if (!surestop)
+            std::cout << "  jump %while_entry_" << nwhile.get_curid() << std::endl;
+        else
+            surestop = false;
+
+        std::cout << "\%while_end_" << nwhile.get_curid() << ":" << std::endl;
+
+        nwhile.pop_stmt();
+    }
+};
+
+class ContinueStmt : public BaseAST
+{
+public:
+    void Dump() const override
+    {
+        surestop = true;
+        std::cout << "  jump %while_entry_" << nwhile.get_curid() << std::endl;
+    }
+};
+
+class BreakStmt : public BaseAST
+{
+public:
+    void Dump() const override
+    {
+        surestop = true;
+        std::cout << "  jump %while_end_" << nwhile.get_curid() << std::endl;
     }
 };
 
@@ -455,55 +504,35 @@ public:
     std::unique_ptr<BaseAST> eq_expr;
     void Dump() const override
     {
-        // eq_expr->Dump();
-        // int rreg = nhold - 1;
-
-        // if (land_op.empty())
-        //     return;
-
-        // land_expr->Dump();
-        // int lreg = nhold - 1;
-
-        // if (land_op.compare("&&") == 0)
-        // {
-        //     std::cout << "  %" << nhold++ << " = ne %" << lreg << ", 0" << std::endl;
-        //     std::cout << "  %" << nhold++ << " = ne %" << rreg << ", 0" << std::endl;
-        //     std::cout << "  %" << nhold << " = and %" << nhold - 1 << ", %" << nhold - 2 << std::endl;
-        // }
-        // else
-        //     assert(false);
-
-        // ++nhold;
-
         if (land_expr == nullptr)
         {
             eq_expr->Dump();
             return;
         }
 
-        nif.push_if();
+        nif.push_stmt();
 
         land_expr->Dump();
         int lreg = nhold - 1;
         int lout = (nhold++);
         std::cout << "  %" << lout << " = ne %" << lreg << ", 0" << std::endl;
-        std::cout << "  @andresult__" << nif.get_curfid() << " = alloc i32" << std::endl;
-        std::cout << "  store %" << lout << ", @andresult__" << nif.get_curfid() << std::endl;
-        std::cout << "  br %" << lout << ", \%end_" << nif.get_curfid() << ", \%then_" << nif.get_curfid() << std::endl;
-        std::cout << "%then_" << nif.get_curfid() << ":" << std::endl;
+        std::cout << "  @andresult__" << nif.get_curid() << " = alloc i32" << std::endl;
+        std::cout << "  store %" << lout << ", @andresult__" << nif.get_curid() << std::endl;
+        std::cout << "  br %" << lout << ", \%if_then_" << nif.get_curid() << ", \%if_end_" << nif.get_curid() << std::endl;
+        std::cout << "%if_then_" << nif.get_curid() << ":" << std::endl;
 
         eq_expr->Dump();
         int rreg = nhold - 1;
         int rlout = (nhold++);
         std::cout << "  %" << rlout << " = ne %" << rreg << ", 0" << std::endl;
         std::cout << "  %" << nhold++ << " = and %" << lout << ", %" << rlout << std::endl;
-        std::cout << "  store %" << nhold - 1 << ", @andresult__" << nif.get_curfid() << std::endl;
-        std::cout << "  jump \%end_" << nif.get_curfid() << std::endl;
+        std::cout << "  store %" << nhold - 1 << ", @andresult__" << nif.get_curid() << std::endl;
+        std::cout << "  jump \%if_end_" << nif.get_curid() << std::endl;
 
-        std::cout << "\%end_" << nif.get_curfid() << ":" << std::endl;
-        std::cout << "  %" << nhold++ << " = load @andresult__" << nif.get_curfid() << std::endl;
+        std::cout << "\%if_end_" << nif.get_curid() << ":" << std::endl;
+        std::cout << "  %" << nhold++ << " = load @andresult__" << nif.get_curid() << std::endl;
 
-        nif.pop_if();
+        nif.pop_stmt();
     }
 
     int Calc() override
@@ -524,52 +553,35 @@ public:
     std::unique_ptr<BaseAST> land_expr;
     void Dump() const override
     {
-        // land_expr->Dump();
-        // int rreg = nhold - 1;
-
-        // if (lor_op.empty())
-        //     return;
-
-        // lor_expr->Dump();
-        // int lreg = nhold - 1;
-
-        // if (lor_op.compare("||") == 0)
-        // {
-        //     std::cout << "  %" << nhold++ << " = ne %" << lreg << ", 0" << std::endl;
-        //     std::cout << "  %" << nhold++ << " = ne %" << rreg << ", 0" << std::endl;
-        //     std::cout << "  %" << nhold++ << " = or %" << nhold - 1 << ", %" << nhold - 2 << std::endl;
-        // }
-        // else
-        //     assert(false);
         if (lor_expr == nullptr)
         {
             land_expr->Dump();
             return;
         }
 
-        nif.push_if();
+        nif.push_stmt();
 
         lor_expr->Dump();
         int lreg = nhold - 1;
         int lout = (nhold++);
         std::cout << "  %" << lout << " = ne %" << lreg << ", 0" << std::endl;
-        std::cout << "  @orresult__" << nif.get_curfid() << " = alloc i32" << std::endl;
-        std::cout << "  store %" << lout << ", @orresult__" << nif.get_curfid() << std::endl;
-        std::cout << "  br %" << lout << ", \%end_" << nif.get_curfid() << ", \%then_" << nif.get_curfid() << std::endl;
-        std::cout << "%then_" << nif.get_curfid() << ":" << std::endl;
+        std::cout << "  @orresult__" << nif.get_curid() << " = alloc i32" << std::endl;
+        std::cout << "  store %" << lout << ", @orresult__" << nif.get_curid() << std::endl;
+        std::cout << "  br %" << lout << ", \%if_end_" << nif.get_curid() << ", \%if_then_" << nif.get_curid() << std::endl;
+        std::cout << "%if_then_" << nif.get_curid() << ":" << std::endl;
 
         land_expr->Dump();
         int rreg = nhold - 1;
         int rlout = (nhold++);
         std::cout << "  %" << rlout << " = ne %" << rreg << ", 0" << std::endl;
         std::cout << "  %" << nhold++ << " = or %" << lout << ", %" << rlout << std::endl;
-        std::cout << "  store %" << nhold - 1 << ", @orresult__" << nif.get_curfid() << std::endl;
-        std::cout << "  jump \%end_" << nif.get_curfid() << std::endl;
+        std::cout << "  store %" << nhold - 1 << ", @orresult__" << nif.get_curid() << std::endl;
+        std::cout << "  jump \%if_end_" << nif.get_curid() << std::endl;
 
-        std::cout << "\%end_" << nif.get_curfid() << ":" << std::endl;
-        std::cout << "  %" << nhold++ << " = load @orresult__" << nif.get_curfid() << std::endl;
+        std::cout << "\%if_end_" << nif.get_curid() << ":" << std::endl;
+        std::cout << "  %" << nhold++ << " = load @orresult__" << nif.get_curid() << std::endl;
 
-        nif.pop_if();
+        nif.pop_stmt();
     }
 
     int Calc() override

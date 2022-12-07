@@ -38,7 +38,7 @@ using namespace std;
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT RETURN CONST ASSIGN IF ELSE
+%token INT RETURN CONST ASSIGN IF ELSE WHILE CONTINUE BREAK
 %token <str_val> IDENT
 %token <str_val> REL_OP
 %token <str_val> EQ_OP
@@ -47,7 +47,7 @@ using namespace std;
 %token <int_val> INT_CONST
 
 // 非终结符的类型定义
-%type <ast> FuncDef FuncType Block BlockItems BlockItem Stmt ReturnStmt AssignStmt IfStmt
+%type <ast> FuncDef FuncType Block BlockItems BlockItem Stmt ReturnStmt AssignStmt IfStmt WhileStmt ContinueStmt BreakStmt
 %type <ast> Number PrimaryExp UnaryExp Exp AddExp MulExp RelExp EqExp LAndExp LOrExp
 %type <ast> BType
 %type <ast> Decl ConstDecl ConstDefs ConstDef ConstInitVal LVal RVal ConstExp 
@@ -140,9 +140,6 @@ Stmt
     auto ast = new Stmt();
     ast->stmt = unique_ptr<BaseAST>($1);
     $$ = ast;
-  } | ';' {
-    auto ast = new Stmt();
-    $$ = ast;
   } | Block {
     auto ast = new Stmt();
     ast->stmt = unique_ptr<BaseAST>($1);
@@ -151,7 +148,22 @@ Stmt
     auto ast = new Stmt();
     ast->stmt = unique_ptr<BaseAST>($1);
     $$ = ast;
-  }
+  } | WhileStmt {
+    auto ast = new Stmt();
+    ast->stmt = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | BreakStmt {
+    auto ast = new Stmt();
+    ast->stmt = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | ContinueStmt{
+    auto ast = new Stmt();
+    ast->stmt = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | ';' {
+    auto ast = new Stmt();
+    $$ = ast;
+  } 
   ;
 
 ReturnStmt
@@ -189,6 +201,27 @@ IfStmt
     ast->cond = unique_ptr<BaseAST>($3);
     ast->if_stmt = unique_ptr<BaseAST>($5);
     ast->else_stmt = unique_ptr<BaseAST>($7);
+    $$ = ast;
+  }
+
+WhileStmt
+  : WHILE '(' Exp ')' Stmt {
+    auto ast = new WhileStmt();
+    ast->cond = unique_ptr<BaseAST>($3);
+    ast->body = unique_ptr<BaseAST>($5);
+    $$ = ast;
+  }
+  ;
+
+ContinueStmt
+  : CONTINUE {
+    auto ast = new ContinueStmt();
+    $$ = ast;
+  }
+
+BreakStmt
+  : BREAK {
+    auto ast = new BreakStmt();
     $$ = ast;
   }
 
