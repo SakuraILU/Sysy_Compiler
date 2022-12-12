@@ -38,7 +38,7 @@ using namespace std;
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT RETURN CONST ASSIGN IF ELSE WHILE CONTINUE BREAK
+%token INT RETURN CONST ASSIGN IF ELSE WHILE CONTINUE BREAK VOID
 %token <str_val> IDENT
 %token <str_val> REL_OP
 %token <str_val> EQ_OP
@@ -47,11 +47,12 @@ using namespace std;
 %token <int_val> INT_CONST
 
 // 非终结符的类型定义
-%type <ast> FuncDef FuncType Block BlockItems BlockItem Stmt ReturnStmt AssignStmt IfStmt WhileStmt ContinueStmt BreakStmt
+%type <ast> FuncDef VoidType Block BlockItems BlockItem Stmt ReturnStmt AssignStmt IfStmt WhileStmt ContinueStmt BreakStmt
 %type <ast> Number PrimaryExp UnaryExp Exp AddExp MulExp RelExp EqExp LAndExp LOrExp
 %type <ast> BType
 %type <ast> Decl ConstDecl ConstDefs ConstDef ConstInitVal LVal RVal ConstExp 
 %type <ast> VarDecl VarDefs VarDef InitVal 
+%type <ast> MultCompUnit SingleCompUnit FuncFParams FuncFParam FuncRParams FuncCall
 
 %%
 
@@ -61,11 +62,35 @@ using namespace std;
 // 此时我们应该把 FuncDef 返回的结果收集起来, 作为 AST 传给调用 parser 的函数
 // $1 指代规则里第一个符号的返回值, 也就是 FuncDef 的返回值
 CompUnit
-  : FuncDef {
+  : MultCompUnit {
     auto comp_unit = make_unique<CompUnitAST>();
-    comp_unit->func_def = unique_ptr<BaseAST>($1);
+    comp_unit->comp_unit = unique_ptr<BaseAST>($1);
     ast = move(comp_unit);
+  } 
+  ;
+
+MultCompUnit
+  : SingleCompUnit {
+    auto ast = new MultCompUnitAST();
+    ast->comp_unit = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | SingleCompUnit MultCompUnit {
+    auto ast = new MultCompUnitAST();
+    ast->comp_unit = unique_ptr<BaseAST>($1);
+    ast->comp_units = unique_ptr<BaseAST>($2);
+    $$ = ast;
   }
+
+SingleCompUnit
+  : Decl {
+    auto ast = new SingleCompUnitAST();
+    ast->comp_unit = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | FuncDef {
+    auto ast = new SingleCompUnitAST();
+    ast->comp_unit = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } 
   ;
 
 // FuncDef ::= FuncType IDENT '(' ')' Block;
@@ -78,21 +103,141 @@ CompUnit
 // 否则会发生内存泄漏, 而 unique_ptr 这种智能指针可以自动帮我们 delete
 // 虽然此处你看不出用 unique_ptr 和手动 delete 的区别, 但当我们定义了 AST 之后
 // 这种写法会省下很多内存管理的负担
-FuncDef
-  : FuncType IDENT '(' ')' Block {
-    auto ast = new FuncDefAST();
-    ast->func_type = unique_ptr<BaseAST>($1);
-    ast->ident = *unique_ptr<string>($2);
-    ast->block = unique_ptr<BaseAST>($5);
+
+Decl
+  : ConstDecl ';' {
+    auto ast = new Decl();
+    ast->decl = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | VarDecl ';' {
+    auto ast = new Decl();
+    ast->decl = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
   ;
 
-// 同上, 不再解释
-FuncType
+VarDecl
+  : BType VarDefs {
+    auto ast = new VarDecl();
+    ast->btype = unique_ptr<BaseAST>($1);
+    ast->var_defs = unique_ptr<BaseAST>($2);
+    $$ = ast;
+  }
+  ;
+
+BType
   : INT {
-    auto ast = new FuncType();
-    ast->func_type = "int";
+    auto ast = new BType();
+    ast->type = "int";
+    $$ = ast;
+  }
+  ;
+
+VoidType
+  : VOID {
+    auto ast = new VoidType();
+    $$ = ast;
+  }
+
+VarDefs
+  : VarDef {
+    auto ast = new VarDefs();
+    ast->var_def = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | VarDef ',' VarDefs {
+    auto ast = new VarDefs();
+    ast->var_def = unique_ptr<BaseAST>($1);
+    ast->var_defs = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  ;
+
+VarDef
+  : IDENT {
+    auto ast = new VarDef();
+    ast->ident = *unique_ptr<string>($1);
+    $$ = ast;
+  } | IDENT ASSIGN InitVal {
+    auto ast = new VarDef();
+    ast->ident = *unique_ptr<string>($1);
+    ast->initval = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+
+InitVal
+  : Exp {
+    auto ast = new InitVal();
+    ast->expr = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  ;
+
+FuncDef
+  : BType IDENT '(' ')' Block {
+    auto ast = new FuncDefAST();
+    ast->func_type = unique_ptr<BaseAST>($1);
+    ast->ident = *unique_ptr<string>($2);
+    ast->block = unique_ptr<BaseAST>($5);
+    ast->hasreturn = true;
+    $$ = ast;
+  } | BType IDENT '(' FuncFParams ')' Block {
+    auto ast = new FuncDefAST();
+    ast->func_type = unique_ptr<BaseAST>($1);
+    ast->ident = *unique_ptr<string>($2);
+    ast->funcfparams = unique_ptr<BaseAST>($4);
+    ast->block = unique_ptr<BaseAST>($6);
+    ast->hasreturn = true;
+    $$ = ast;
+  } | VoidType IDENT '(' ')' Block {
+    auto ast = new FuncDefAST();
+    ast->func_type = unique_ptr<BaseAST>($1);
+    ast->ident = *unique_ptr<string>($2);
+    ast->block = unique_ptr<BaseAST>($5);
+    ast->hasreturn = false;
+    $$ = ast;
+  } | VoidType IDENT '(' FuncFParams ')' Block {
+    auto ast = new FuncDefAST();
+    ast->func_type = unique_ptr<BaseAST>($1);
+    ast->ident = *unique_ptr<string>($2);
+    ast->funcfparams = unique_ptr<BaseAST>($4);
+    ast->block = unique_ptr<BaseAST>($6);
+    ast->hasreturn = false;
+    $$ = ast;
+  }
+  ;
+
+
+FuncFParams
+  : FuncFParam {
+    auto ast = new FuncFParams();
+    ast->funcfparam = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | FuncFParam ',' FuncFParams {
+    auto ast = new FuncFParams();
+    ast->funcfparam = unique_ptr<BaseAST>($1);
+    ast->funcfparams = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  ;
+
+FuncFParam
+  : BType IDENT {
+    auto ast = new FuncFParam();
+    ast->btype = unique_ptr<BaseAST>($1);
+    ast->ident = *unique_ptr<string>($2);
+    $$ = ast;
+  }
+  ;
+
+FuncRParams
+  : Exp {
+    auto ast = new FuncRParams();
+    ast->expr = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | Exp ',' FuncRParams {
+    auto ast = new FuncRParams();
+    ast->expr = unique_ptr<BaseAST>($1);
+    ast->funcrparams = unique_ptr<BaseAST>($3);
     $$ = ast;
   }
   ;
@@ -156,7 +301,7 @@ Stmt
     auto ast = new Stmt();
     ast->stmt = unique_ptr<BaseAST>($1);
     $$ = ast;
-  } | ContinueStmt{
+  } | ContinueStmt {
     auto ast = new Stmt();
     ast->stmt = unique_ptr<BaseAST>($1);
     $$ = ast;
@@ -218,12 +363,14 @@ ContinueStmt
     auto ast = new ContinueStmt();
     $$ = ast;
   }
+  ;
 
 BreakStmt
   : BREAK {
     auto ast = new BreakStmt();
     $$ = ast;
   }
+  ;
 
 Number
   : INT_CONST {
@@ -260,15 +407,32 @@ UnaryExp
 PrimaryExp
   : '(' Exp ')' {
     auto ast = new PrimaryExp();
-    ast->expr_or_num_or_lval_or_rval = unique_ptr<BaseAST>($2);
+    ast->expr = unique_ptr<BaseAST>($2);
     $$ = ast;
   } | Number {
     auto ast = new PrimaryExp();
-    ast->expr_or_num_or_lval_or_rval = unique_ptr<BaseAST>($1);
+    ast->expr = unique_ptr<BaseAST>($1);
     $$ = ast;
   } | RVal {
     auto ast = new PrimaryExp();
-    ast->expr_or_num_or_lval_or_rval = unique_ptr<BaseAST>($1);
+    ast->expr = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | FuncCall {
+    auto ast = new PrimaryExp();
+    ast->expr = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  ;
+
+FuncCall
+  : IDENT '(' FuncRParams ')' {
+    auto ast = new FuncCall();
+    ast->ident = *unique_ptr<string>($1);
+    ast->funcrparams = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  } | IDENT '(' ')' {
+    auto ast = new FuncCall();
+    ast->ident = *unique_ptr<string>($1);
     $$ = ast;
   }
   ;
@@ -433,15 +597,6 @@ ConstDefs
     $$ = ast;
   }
 
-BType
-  : INT {
-    auto ast = new BType();
-    ast->type = "int";
-    $$ = ast;
-  }
-  ;
-
-
 ConstDecl
   : CONST BType ConstDefs {
     auto ast = new ConstDecl();
@@ -450,60 +605,6 @@ ConstDecl
     $$ = ast;
   }
   ;
-
-Decl
-  : ConstDecl ';' {
-    auto ast = new Decl();
-    ast->decl = unique_ptr<BaseAST>($1);
-    $$ = ast;
-  } | VarDecl ';' {
-    auto ast = new Decl();
-    ast->decl = unique_ptr<BaseAST>($1);
-    $$ = ast;
-  }
-  ;
-
-VarDecl
-  : BType VarDefs {
-    auto ast = new VarDecl();
-    ast->btype = unique_ptr<BaseAST>($1);
-    ast->var_defs = unique_ptr<BaseAST>($2);
-    $$ = ast;
-  }
-  ;
-
-VarDefs
-  : VarDef {
-    auto ast = new VarDefs();
-    ast->var_def = unique_ptr<BaseAST>($1);
-    $$ = ast;
-  } | VarDef ',' VarDefs {
-    auto ast = new VarDefs();
-    ast->var_def = unique_ptr<BaseAST>($1);
-    ast->var_defs = unique_ptr<BaseAST>($3);
-    $$ = ast;
-  }
-  ;
-
-VarDef
-  : IDENT {
-    auto ast = new VarDef();
-    ast->ident = *unique_ptr<string>($1);
-    $$ = ast;
-  } | IDENT ASSIGN InitVal {
-    auto ast = new VarDef();
-    ast->ident = *unique_ptr<string>($1);
-    ast->initval = unique_ptr<BaseAST>($3);
-    $$ = ast;
-  }
-
-InitVal
-  : Exp {
-    auto ast = new InitVal();
-    ast->expr = unique_ptr<BaseAST>($1);
-    $$ = ast;
-  }
-
 
 
 

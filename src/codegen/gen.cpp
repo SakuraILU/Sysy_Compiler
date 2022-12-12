@@ -1,6 +1,7 @@
 #include <iostream>
 #include "gen.h"
 #include <assert.h>
+#include "layout.h"
 
 CodeGen::CodeGen() : instr_handler(InstrHandler()){};
 
@@ -19,6 +20,9 @@ void CodeGen::generate(const char *koopa_str)
 
     // 处理 raw program
     // ...
+    std::cout << "  .data" << std::endl;
+    traverse(raw.values);
+
     std::cout << "  .text" << std::endl;
     traverse(raw.funcs);
 
@@ -57,10 +61,14 @@ void CodeGen::traverse(const koopa_raw_slice_t &slice)
 
 void CodeGen::handle(const koopa_raw_function_t &func)
 {
+    if (func->bbs.len == 0)
+        return;
+
     instr_handler.reset();
     std::cout << "  .global " << func->name + 1 << std::endl;
     std::cout << func->name + 1 << ":" << std::endl;
-    std::cout << "  addi sp, sp, -256" << std::endl;
+
+    std::cout << "  addi sp, sp, " << -STKSIZE << std::endl;
     traverse(func->bbs);
 }
 
@@ -75,9 +83,6 @@ void CodeGen::handle(const koopa_raw_value_t &value)
 {
     // 根据指令类型判断后续需要如何访问
     const auto &kind = value->kind;
-    // std::cerr << "value is " << (uintptr_t)value << std::endl;
-    // std::cerr << "&kind is " << (uintptr_t)&value->kind << std::endl;
-    // std::cerr << "instr tag is " << kind.tag << std::endl;
     switch (kind.tag)
     {
     case KOOPA_RVT_RETURN:
@@ -121,6 +126,16 @@ void CodeGen::handle(const koopa_raw_value_t &value)
     case KOOPA_RVT_JUMP:
     {
         instr_handler.jump_handler(kind);
+        break;
+    }
+    case KOOPA_RVT_CALL:
+    {
+        instr_handler.call_handler(kind);
+        break;
+    }
+    case KOOPA_RVT_GLOBAL_ALLOC:
+    {
+        instr_handler.galloc_handler(value);
         break;
     }
     default:

@@ -4,8 +4,12 @@
 #include <memory>
 #include <string>
 #include <assert.h>
-#include "vartable.h"
+#include "symtable.h"
 #include "stmtid.h"
+#include "rparams.h"
+#include <vector>
+
+static void import_sysfun();
 
 static int nhold = 0;
 static StmtId nif;
@@ -13,7 +17,9 @@ static StmtId nwhile;
 
 static bool surestop = false;
 
-static LocalVarTable local_vartable;
+static RParams rparms;
+
+static SymTable vartable;
 
 // 所有 AST 的基类
 class BaseAST
@@ -28,18 +34,81 @@ public:
         std::cerr << "unimplemented" << std::endl;
         assert(false);
     }
+
+    virtual void Dump2() const
+    {
+        std::cerr << "unimplemented" << std::endl;
+        assert(false);
+    }
 };
 
-// CompUnit 是 BaseAST
 class CompUnitAST : public BaseAST
 {
 public:
+    std::unique_ptr<BaseAST> comp_unit;
+    void Dump() const override
+    {
+        vartable.push_table();
+        import_sysfun();
+        comp_unit->Dump();
+        vartable.pop_table();
+    }
+};
+
+class MultCompUnitAST : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> comp_units;
+    std::unique_ptr<BaseAST> comp_unit;
+    void Dump() const override
+    {
+        comp_unit->Dump();
+        if (comp_units != nullptr)
+            comp_units->Dump();
+    }
+};
+
+// CompUnit 是 BaseAST
+class SingleCompUnitAST : public BaseAST
+{
+public:
     // 用智能指针管理对象
-    std::unique_ptr<BaseAST> func_def;
+    std::unique_ptr<BaseAST> comp_unit;
 
     void Dump() const override
     {
-        func_def->Dump();
+        comp_unit->Dump();
+    }
+};
+
+class BType : public BaseAST
+{
+public:
+    std::string type;
+    void Dump() const override
+    {
+        assert(type.compare("int") == 0);
+        std::cout << "i32";
+    }
+
+    void Dump2() const override
+    {
+        assert(type.compare("int") == 0);
+        std::cout << ": i32";
+    }
+};
+
+class VoidType : public BaseAST
+{
+public:
+    void Dump() const override
+    {
+        std::cout << "" << std::endl;
+    }
+
+    void Dump2() const override
+    {
+        std::cout << "" << std::endl;
     }
 };
 
@@ -49,28 +118,105 @@ class FuncDefAST : public BaseAST
 public:
     std::unique_ptr<BaseAST> func_type;
     std::string ident;
+    std::unique_ptr<BaseAST> funcfparams;
+    bool hasreturn;
     std::unique_ptr<BaseAST> block;
 
     void Dump() const override
     {
-        std::cout << "fun @" << ident << "(): ";
-        func_type->Dump();
+        SymTable::Entry entry = {.ident = ident, .type = (hasreturn) ? SymTable::FUNC : SymTable::VOIDFUNC};
+        vartable.add_entry(entry);
+
+        vartable.push_table();
+        std::cout << "fun @" << ident << "(";
+        if (funcfparams != nullptr)
+            funcfparams->Dump();
+        std::cout << ") ";
+        func_type->Dump2();
         std::cout << "{ " << std::endl;
-        std::cout << "\%entry:" << std::endl;
+        std::cout << "\%" << ident << "_entry:" << std::endl;
+        if (funcfparams != nullptr)
+            funcfparams->Dump2();
         block->Dump();
-        std::cout << "}";
-        std::cout << std::endl;
+        if (!surestop)
+            std::cout << "  ret" << std::endl;
+        std::cout << "}" << std::endl;
+
+        surestop = false;
+
+        vartable.pop_table();
     }
 };
 
-class FuncType : public BaseAST
+class FuncFParams : public BaseAST
 {
 public:
-    std::string func_type;
-
+    std::unique_ptr<BaseAST> funcfparam;
+    std::unique_ptr<BaseAST> funcfparams;
     void Dump() const override
     {
-        std::cout << "i32 ";
+        // std::cerr << "this bid is " << vartable.get_curbid() << std::endl;
+        funcfparam->Dump();
+        if (funcfparams != nullptr)
+        {
+            std::cout << ", ";
+            funcfparams->Dump();
+        }
+    }
+
+    void Dump2() const override
+    {
+        funcfparam->Dump2();
+        if (funcfparams != nullptr)
+            funcfparams->Dump2();
+    }
+};
+
+class FuncFParam : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> btype;
+    std::string ident;
+    void Dump() const override
+    {
+        std::string ident = vartable.cvt2acutal_ident(this->ident);
+        std::cout << "%" << ident << ": ";
+        btype->Dump();
+    }
+
+    void Dump2() const override
+    {
+        SymTable::Entry entry = {.ident = ident, .type = SymTable::VARIABLE};
+        vartable.add_entry(entry);
+
+        std::string ident = vartable.cvt2acutal_ident(this->ident);
+        std::cout << "  @" << ident << " = alloc ";
+        btype->Dump();
+        std::cout << std::endl;
+
+        std::cout << "  store %" << ident << ", @" << ident << std::endl;
+    }
+};
+
+class FuncRParams : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> expr;
+    std::unique_ptr<BaseAST> funcrparams;
+    void Dump() const override
+    {
+        expr->Dump();
+        rparms.add_param(nhold - 1);
+        if (funcrparams != nullptr)
+            funcrparams->Dump();
+    }
+
+    void Dump2() const override
+    {
+        std::vector<int> nholds = rparms.get_params();
+        for (int i = 0; i < nholds.size() - 1; ++i)
+            std::cout << "%" << nholds[i] << ", ";
+        std::cout << "%" << nholds[nholds.size() - 1];
     }
 };
 
@@ -82,11 +228,11 @@ public:
     {
         if (block_items == nullptr)
             return;
-        local_vartable.push_table();
-        // std::cerr << "alloc table " << local_vartable.get_curbid() << std::endl;
+        vartable.push_table();
+        // std::cerr << "alloc table " << vartable.get_curbid() << std::endl;
         block_items->Dump();
 
-        local_vartable.pop_table();
+        vartable.pop_table();
     }
 };
 
@@ -109,6 +255,9 @@ public:
     std::unique_ptr<BaseAST> decl_or_stmt;
     void Dump() const override
     {
+        if (surestop)
+            return;
+
         decl_or_stmt->Dump();
         // std::cout << std::endl;
     }
@@ -124,9 +273,6 @@ public:
         if (stmt == nullptr)
             return;
 
-        if (surestop)
-            return;
-
         stmt->Dump();
     }
 };
@@ -138,8 +284,12 @@ public:
     void Dump() const override
     {
         if (expr != nullptr)
+        {
             expr->Dump();
-        std::cout << "  ret %" << nhold - 1 << std::endl;
+            std::cout << "  ret %" << nhold - 1 << std::endl;
+        }
+        else
+            std::cout << "  ret" << std::endl;
         surestop = true;
     }
 };
@@ -274,13 +424,43 @@ class PrimaryExp : public BaseAST
 {
 public:
     // bool is_expr;
-    std::unique_ptr<BaseAST> expr_or_num_or_lval_or_rval;
+    std::unique_ptr<BaseAST> expr;
     void Dump() const override
     {
-        expr_or_num_or_lval_or_rval->Dump();
+        expr->Dump();
     }
 
-    int Calc() override { return expr_or_num_or_lval_or_rval->Calc(); }
+    int Calc() override { return expr->Calc(); }
+};
+
+class FuncCall : public BaseAST
+{
+public:
+    std::string ident;
+    std::unique_ptr<BaseAST> funcrparams;
+    void Dump() const override
+    {
+        // std::cerr << "funccall" << std::endl;
+        SymTable::Entry entry = vartable.find_entry(ident);
+        assert(entry.type == SymTable::FUNC || entry.type == SymTable::VOIDFUNC);
+
+        rparms.push();
+
+        if (funcrparams != nullptr)
+            funcrparams->Dump();
+
+        if (entry.type == SymTable::FUNC)
+            std::cout << "  %" << nhold++ << " = call @" << ident << "(";
+        else
+            std::cout << "  call @" << ident << "(";
+
+        if (funcrparams != nullptr)
+            funcrparams->Dump2();
+
+        std::cout << ")" << std::endl;
+
+        rparms.pop();
+    }
 };
 
 class UnaryExp : public BaseAST
@@ -616,9 +796,9 @@ public:
     std::string ident;
     void Dump() const override
     {
-        LocalVarTable::Entry entry = local_vartable.find_entry(this->ident);
+        SymTable::Entry entry = vartable.find_entry(this->ident);
 
-        assert(entry.type == LocalVarTable::VARIABLE);
+        assert(entry.type == SymTable::VARIABLE);
 
         std::cout << "  store %" << nhold - 1 << ", @" << entry.ident << std::endl;
     }
@@ -630,21 +810,21 @@ public:
     std::string ident;
     void Dump() const override
     {
-        LocalVarTable::Entry entry = local_vartable.find_entry(this->ident);
+        SymTable::Entry entry = vartable.find_entry(this->ident);
 
         // assert(cur_table_node->val_table.count(ident) != 0);
 
-        if (entry.type == LocalVarTable::VARIABLE)
+        if (entry.type == SymTable::VARIABLE)
             std::cout << "  %" << nhold++ << " = load @" << entry.ident << std::endl;
-        else if (entry.type == LocalVarTable::CONST)
+        else if (entry.type == SymTable::CONST)
             std::cout << "  %" << nhold++ << " = add " << entry.data << ", 0" << std::endl;
     }
 
     int Calc() override
     {
-        LocalVarTable::Entry entry = local_vartable.find_entry(this->ident);
+        SymTable::Entry entry = vartable.find_entry(this->ident);
 
-        assert(entry.type == LocalVarTable::CONST);
+        assert(entry.type == SymTable::CONST);
 
         return entry.data;
     }
@@ -687,8 +867,8 @@ public:
     {
         assert(const_initval != nullptr);
 
-        LocalVarTable::Entry entry = {.ident = ident, .type = LocalVarTable::CONST, .data = const_initval->Calc()};
-        local_vartable.add_entry(entry);
+        SymTable::Entry entry = {.ident = ident, .type = SymTable::CONST, .data = const_initval->Calc()};
+        vartable.add_entry(entry);
     }
 };
 
@@ -702,16 +882,6 @@ public:
         const_def->Dump();
         if (const_defs != nullptr)
             const_defs->Dump();
-    }
-};
-
-class BType : public BaseAST
-{
-public:
-    std::string type;
-    void Dump() const override
-    {
-        assert(type.compare("int"));
     }
 };
 
@@ -767,15 +937,26 @@ public:
     std::unique_ptr<BaseAST> initval;
     void Dump() const override
     {
-        LocalVarTable::Entry entry = {.ident = ident, .type = LocalVarTable::VARIABLE};
-        local_vartable.add_entry(entry);
+        SymTable::Entry entry = {.ident = ident, .type = SymTable::VARIABLE};
+        vartable.add_entry(entry);
 
-        std::string actual_ident = local_vartable.cvt2acutal_ident(ident);
-        std::cout << "  @" << actual_ident << " = alloc i32" << std::endl;
-        if (initval != nullptr)
+        std::string actual_ident = vartable.cvt2acutal_ident(ident);
+        // std::cerr << "is global " << vartable.compling_global() << std::endl;
+        if (vartable.compling_global())
         {
-            initval->Dump();
-            std::cout << "  store %" << nhold - 1 << ", @" << actual_ident << std::endl;
+            if (initval != nullptr)
+                std::cout << "global @" << actual_ident << " = alloc i32, " << initval->Calc() << std::endl;
+            else
+                std::cout << "global @" << actual_ident << " = alloc i32, zeroinit" << std::endl;
+        }
+        else
+        {
+            std::cout << "  @" << actual_ident << " = alloc i32" << std::endl;
+            if (initval != nullptr)
+            {
+                initval->Dump();
+                std::cout << "  store %" << nhold - 1 << ", @" << actual_ident << std::endl;
+            }
         }
     }
 };
@@ -788,4 +969,44 @@ public:
     {
         expr->Dump();
     }
+
+    int Calc() override
+    {
+        return expr->Calc();
+    }
 };
+
+static void import_sysfun()
+{
+    std::cout << "decl @getint(): i32" << std::endl;
+    SymTable::Entry entry = {.ident = "getint", .type = SymTable::FUNC};
+    vartable.add_entry(entry);
+
+    std::cout << "decl @getch(): i32" << std::endl;
+    entry = {.ident = "getch", .type = SymTable::FUNC};
+    vartable.add_entry(entry);
+
+    std::cout << "decl @getarray(*i32): i32" << std::endl;
+    entry = {.ident = "getarray", .type = SymTable::FUNC};
+    vartable.add_entry(entry);
+
+    std::cout << "decl @putint(i32)" << std::endl;
+    entry = {.ident = "putint", .type = SymTable::VOIDFUNC};
+    vartable.add_entry(entry);
+
+    std::cout << "decl @putch(i32)" << std::endl;
+    entry = {.ident = "putch", .type = SymTable::VOIDFUNC};
+    vartable.add_entry(entry);
+
+    std::cout << "decl @putarray(i32, *i32)" << std::endl;
+    entry = {.ident = "putarray", .type = SymTable::VOIDFUNC};
+    vartable.add_entry(entry);
+
+    std::cout << "decl @starttime()" << std::endl;
+    entry = {.ident = "starttime", .type = SymTable::VOIDFUNC};
+    vartable.add_entry(entry);
+
+    std::cout << "decl @stoptime()" << std::endl;
+    entry = {.ident = "stoptime", .type = SymTable::VOIDFUNC};
+    vartable.add_entry(entry);
+}

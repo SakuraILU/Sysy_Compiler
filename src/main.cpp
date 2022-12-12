@@ -54,7 +54,6 @@ int main(int argc, const char *argv[])
     ast->Dump();
     cout.rdbuf(old);
     string koopa_str = koopastream.str();
-    // cout << text << endl;
     const char *koopa_res = koopa_str.c_str();
 
     FILE *out = freopen(output, "w", stdout);
