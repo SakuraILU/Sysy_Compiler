@@ -111,8 +111,6 @@ void InstrHandler::get_reg(koopa_raw_store_t store, std::string &reg)
 InstrHandler::InstrHandler() : stk_offsets(std::unordered_map<uintptr_t, int>())
 {
     nreg = 0;
-    NREG = sizeof(regs) / sizeof(regs[0]);
-
     max_offset = STKOFF;
 };
 
