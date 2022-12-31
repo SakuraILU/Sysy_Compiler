@@ -39,6 +39,8 @@ public:
         VARIABLE,
         FUNC,
         VOIDFUNC,
+        ARR,
+        CONSTARR,
     };
 
     /*

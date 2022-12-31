@@ -68,7 +68,8 @@ void CodeGen::handle(const koopa_raw_function_t &func)
     std::cout << "  .global " << func->name + 1 << std::endl;
     std::cout << func->name + 1 << ":" << std::endl;
 
-    std::cout << "  addi sp, sp, " << -STKSIZE << std::endl;
+    std::cout << "  li t0, " << -STKSIZE << std::endl;
+    std::cout << "  add sp, sp, t0" << std::endl;
     traverse(func->bbs);
 }
 
@@ -136,6 +137,11 @@ void CodeGen::handle(const koopa_raw_value_t &value)
     case KOOPA_RVT_GLOBAL_ALLOC:
     {
         instr_handler.galloc_handler(value);
+        break;
+    }
+    case KOOPA_RVT_GET_ELEM_PTR:
+    {
+        instr_handler.getelemptr_handler(kind);
         break;
     }
     default:

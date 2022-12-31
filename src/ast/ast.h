@@ -19,6 +19,8 @@ static bool surestop = false;
 
 static RParams rparms;
 
+static std::vector<int> arr_inits;
+
 static SymTable vartable;
 
 // 所有 AST 的基类
@@ -790,17 +792,52 @@ public:
     }
 };
 
+class Exps : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> expr;
+    std::unique_ptr<BaseAST> exprs;
+    void Dump() const override {}
+
+    int Calc() override
+    {
+        arr_inits.push_back(expr->Calc());
+        if (exprs != nullptr)
+            exprs->Calc();
+        return arr_inits.size();
+    }
+};
 class LVal : public BaseAST
 {
 public:
     std::string ident;
+    std::unique_ptr<BaseAST> expr;
     void Dump() const override
     {
         SymTable::Entry entry = vartable.find_entry(this->ident);
 
-        assert(entry.type == SymTable::VARIABLE);
+        // assert(entry.type == SymTable::VARIABLE);
 
-        std::cout << "  store %" << nhold - 1 << ", @" << entry.ident << std::endl;
+        switch (entry.type)
+        {
+        case SymTable::VARIABLE:
+        {
+            std::cout << "  store %" << nhold - 1 << ", @" << entry.ident << std::endl;
+            break;
+        }
+        case SymTable::ARR:
+        {
+            int nhold_src = nhold - 1;
+            expr->Dump();
+            std::cout << "  %" << nhold << " = getelemptr @" << entry.ident << ", %" << nhold - 1 << std::endl;
+            std::cout << "  store %" << nhold_src << ", %" << nhold << std::endl;
+            ++nhold;
+            break;
+        }
+        default:
+            assert(false);
+            break;
+        }
     }
 };
 
@@ -808,21 +845,44 @@ class RVal : public BaseAST
 {
 public:
     std::string ident;
+    std::unique_ptr<BaseAST> expr;
+
     void Dump() const override
     {
         SymTable::Entry entry = vartable.find_entry(this->ident);
 
-        // assert(cur_table_node->val_table.count(ident) != 0);
-
-        if (entry.type == SymTable::VARIABLE)
+        switch (entry.type)
+        {
+        case SymTable::VARIABLE:
+        {
             std::cout << "  %" << nhold++ << " = load @" << entry.ident << std::endl;
-        else if (entry.type == SymTable::CONST)
+            break;
+        }
+        case SymTable::CONST:
+        {
             std::cout << "  %" << nhold++ << " = add " << entry.data << ", 0" << std::endl;
+            break;
+        }
+        case SymTable::CONSTARR:
+        case SymTable::ARR:
+        {
+            expr->Dump();
+            std::cout << "  %" << nhold << " = getelemptr @" << entry.ident << ", %" << nhold - 1 << std::endl;
+            ++nhold;
+            std::cout << "  %" << nhold << " = load %" << nhold - 1 << std::endl;
+            ++nhold;
+            break;
+        }
+        default:
+            assert(false);
+            break;
+        }
     }
 
     int Calc() override
     {
         SymTable::Entry entry = vartable.find_entry(this->ident);
+        // std::cerr << entry.ident << " type " << entry.type << std::endl;
 
         assert(entry.type == SymTable::CONST);
 
@@ -844,31 +904,121 @@ public:
     }
 };
 
-class ConstInitVal : public BaseAST
+class ConstExps : public BaseAST
 {
 public:
     std::unique_ptr<BaseAST> const_expr;
-    void Dump() const override
-    {
-    }
+    std::unique_ptr<BaseAST> const_exprs;
+    void Dump() const override {}
 
     int Calc() override
     {
-        return const_expr->Calc();
+        arr_inits.push_back(const_expr->Calc());
+        if (const_exprs != nullptr)
+            const_exprs->Calc();
+        return arr_inits.size();
+    }
+};
+
+class ConstInitVal : public BaseAST
+{
+public:
+    std::unique_ptr<BaseAST> const_exprs;
+
+    void Dump() const override {}
+
+    int Calc() override
+    {
+        if (const_exprs == nullptr)
+            return 0;
+        return const_exprs->Calc();
     }
 };
 
 class ConstDef : public BaseAST
 {
+private:
+    void DumpGlobalArrInit() const
+    {
+        std::cout << "{ ";
+
+        const_initval->Calc();
+        if (arr_inits.size() == const_exp->Calc())
+        {
+            for (int i = 0; i < arr_inits.size() - 1; ++i)
+            {
+                std::cout << arr_inits[i] << ", ";
+            }
+            std::cout << arr_inits[arr_inits.size() - 1];
+        }
+        else if (arr_inits.size() < const_exp->Calc())
+        {
+            for (int i = 0; i < arr_inits.size(); ++i)
+            {
+                std::cout << arr_inits[i] << ", ";
+            }
+            for (int i = arr_inits.size(); i < const_exp->Calc() - 1; ++i)
+            {
+                std::cout << "0, ";
+            }
+            std::cout << 0;
+        }
+        else
+            assert(false);
+
+        std::cout << "}" << std::endl;
+
+        arr_inits.clear();
+    }
+
+    void DumpLocalArrInit() const
+    {
+        std::string actual_ident = vartable.cvt2acutal_ident(ident);
+
+        const_initval->Calc();
+        for (int i = 0; i < arr_inits.size(); ++i)
+        {
+            std::cout << "  %" << nhold++ << " = getelemptr @" << actual_ident << ", " << i << std::endl;
+            std::cout << "  store " << arr_inits[i] << ", %" << nhold - 1 << std::endl;
+        }
+        for (int i = arr_inits.size(); i < const_exp->Calc(); ++i)
+        {
+            std::cout << "  %" << nhold++ << " = getelemptr @" << actual_ident << ", " << i << std::endl;
+            std::cout << "  store " << 0 << ", %" << nhold - 1 << std::endl;
+        }
+
+        arr_inits.clear();
+    }
+
 public:
     std::string ident;
+    std::unique_ptr<BaseAST> const_exp;
     std::unique_ptr<BaseAST> const_initval;
     void Dump() const override
     {
         assert(const_initval != nullptr);
 
-        SymTable::Entry entry = {.ident = ident, .type = SymTable::CONST, .data = const_initval->Calc()};
-        vartable.add_entry(entry);
+        if (const_exp == nullptr)
+        {
+            SymTable::Entry entry = {.ident = ident, .type = SymTable::CONST, .data = const_initval->Calc()};
+            vartable.add_entry(entry);
+        }
+        else
+        {
+            SymTable::Entry entry = {.ident = ident, .type = SymTable::CONSTARR};
+            vartable.add_entry(entry);
+            std::string actual_ident = vartable.cvt2acutal_ident(ident);
+            if (vartable.compling_global())
+            {
+                std::cout << "global @" << actual_ident << " = alloc [i32, " << const_exp->Calc() << "], ";
+                DumpGlobalArrInit();
+            }
+            else
+            {
+                std::cout << "  @" << actual_ident << " = alloc [i32, " << const_exp->Calc() << "]" << std::endl;
+                DumpLocalArrInit();
+            }
+        }
     }
 };
 
@@ -932,10 +1082,8 @@ public:
 
 class VarDef : public BaseAST
 {
-public:
-    std::string ident;
-    std::unique_ptr<BaseAST> initval;
-    void Dump() const override
+private:
+    void DefVariable() const
     {
         SymTable::Entry entry = {.ident = ident, .type = SymTable::VARIABLE};
         vartable.add_entry(entry);
@@ -959,20 +1107,118 @@ public:
             }
         }
     }
+
+    void DefArray() const
+    {
+        SymTable::Entry entry = {.ident = ident, .type = SymTable::ARR};
+        vartable.add_entry(entry);
+
+        std::string actual_ident = vartable.cvt2acutal_ident(ident);
+
+        if (vartable.compling_global())
+        {
+            std::cout << "global @" << actual_ident << " = alloc [i32, " << const_exp->Calc() << "], ";
+            DumpGlobalArrInit();
+        }
+        else
+        {
+            std::cout << "  @" << actual_ident << " = alloc [i32, " << const_exp->Calc() << "]" << std::endl;
+            DumpLocalArrInit();
+        }
+    }
+
+    void DumpGlobalArrInit() const
+    {
+        if (initval == nullptr)
+        {
+            std::cout << "zeroinit" << std::endl;
+            return;
+        }
+
+        std::cout << "{ ";
+
+        initval->Calc();
+        if (arr_inits.size() == const_exp->Calc())
+        {
+            for (int i = 0; i < arr_inits.size() - 1; ++i)
+            {
+                std::cout << arr_inits[i] << ", ";
+            }
+            std::cout << arr_inits[arr_inits.size() - 1];
+        }
+        else if (arr_inits.size() < const_exp->Calc())
+        {
+            for (int i = 0; i < arr_inits.size(); ++i)
+            {
+                std::cout << arr_inits[i] << ", ";
+            }
+            for (int i = arr_inits.size(); i < const_exp->Calc() - 1; ++i)
+            {
+                std::cout << "0, ";
+            }
+            std::cout << 0;
+        }
+        else
+            assert(false);
+
+        std::cout << "}" << std::endl;
+
+        arr_inits.clear();
+    }
+
+    void DumpLocalArrInit() const
+    {
+        if (initval == nullptr)
+            return;
+
+        std::string actual_ident = vartable.cvt2acutal_ident(ident);
+
+        initval->Calc();
+        for (int i = 0; i < arr_inits.size(); ++i)
+        {
+            std::cout << "  %" << nhold++ << " = getelemptr @" << actual_ident << ", " << i << std::endl;
+            std::cout << "  store " << arr_inits[i] << ", %" << nhold - 1 << std::endl;
+        }
+        for (int i = arr_inits.size(); i < const_exp->Calc(); ++i)
+        {
+            std::cout << "  %" << nhold++ << " = getelemptr @" << actual_ident << ", " << i << std::endl;
+            std::cout << "  store " << 0 << ", %" << nhold - 1 << std::endl;
+        }
+
+        arr_inits.clear();
+    }
+
+public:
+    std::string ident;
+    std::unique_ptr<BaseAST> const_exp;
+    std::unique_ptr<BaseAST> initval;
+    void Dump() const override
+    {
+        if (const_exp == nullptr)
+            DefVariable();
+        else
+            DefArray();
+    }
 };
 
 class InitVal : public BaseAST
 {
 public:
-    std::unique_ptr<BaseAST> expr;
+    std::unique_ptr<BaseAST> exprs;
     void Dump() const override
     {
-        expr->Dump();
+        if (exprs == nullptr)
+            return;
+
+        exprs->Dump();
     }
 
     int Calc() override
     {
-        return expr->Calc();
+        if (exprs == nullptr)
+            return 0;
+
+        return exprs->Calc();
     }
 };
 

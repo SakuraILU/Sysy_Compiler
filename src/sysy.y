@@ -53,6 +53,7 @@ using namespace std;
 %type <ast> Decl ConstDecl ConstDefs ConstDef ConstInitVal LVal RVal ConstExp 
 %type <ast> VarDecl VarDefs VarDef InitVal 
 %type <ast> MultCompUnit SingleCompUnit FuncFParams FuncFParam FuncRParams FuncCall
+%type <ast> ConstExps Exps
 
 %%
 
@@ -162,12 +163,30 @@ VarDef
     ast->ident = *unique_ptr<string>($1);
     ast->initval = unique_ptr<BaseAST>($3);
     $$ = ast;
+  } | IDENT '[' ConstExp ']' {
+    auto ast = new VarDef();
+    ast->ident = *unique_ptr<string>($1);
+    ast->const_exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  } | IDENT '[' ConstExp ']' ASSIGN InitVal {
+    auto ast = new VarDef();
+    ast->ident = *unique_ptr<string>($1);
+    ast->const_exp = unique_ptr<BaseAST>($3);
+    ast->initval = unique_ptr<BaseAST>($6);
+    $$ = ast;
   }
 
 InitVal
   : Exp {
     auto ast = new InitVal();
-    ast->expr = unique_ptr<BaseAST>($1);
+    ast->exprs = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | '{' '}'{
+    auto ast = new InitVal();
+    $$ = ast;
+  } | '{' Exps '}' {
+    auto ast = new InitVal();
+    ast->exprs = unique_ptr<BaseAST>($2);
     $$ = ast;
   }
   ;
@@ -445,6 +464,19 @@ Exp
   }
   ;
 
+Exps
+  : Exp {
+    auto ast = new Exps();
+    ast->expr = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | Exp ',' Exps {
+    auto ast = new Exps();
+    ast->expr = unique_ptr<BaseAST>($1);
+    ast->exprs = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  ;
+
 MulExp
   : UnaryExp {
     auto ast = new MulExp();
@@ -549,6 +581,11 @@ LVal
     auto ast = new LVal();
     ast->ident = *unique_ptr<string>($1);
     $$ = ast;
+  } | IDENT '[' Exp ']' {
+    auto ast = new LVal();
+    ast->ident = *unique_ptr<string>($1);
+    ast->expr = unique_ptr<BaseAST>($3);
+    $$ = ast;
   }
   ;
 
@@ -556,6 +593,11 @@ RVal
   : IDENT {
     auto ast = new RVal();
     ast->ident = *unique_ptr<string>($1);
+    $$ = ast;
+  } | IDENT '[' Exp ']' {
+    auto ast = new RVal();
+    ast->ident = *unique_ptr<string>($1);
+    ast->expr = unique_ptr<BaseAST>($3);
     $$ = ast;
   }
   ;
@@ -568,10 +610,30 @@ ConstExp
   }
   ;
 
+ConstExps
+  : ConstExp {
+    auto ast = new ConstExps();
+    ast->const_expr = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | ConstExp ',' ConstExps {
+    auto ast = new ConstExps();
+    ast->const_expr = unique_ptr<BaseAST>($1);
+    ast->const_exprs = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  ;
+
 ConstInitVal
   : ConstExp {
     auto ast = new ConstInitVal();
-    ast->const_expr = unique_ptr<BaseAST>($1);
+    ast->const_exprs = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } | '{' '}'{
+    auto ast = new ConstInitVal();
+    $$ = ast;
+  } | '{' ConstExps '}' {
+    auto ast = new ConstInitVal();
+    ast->const_exprs = unique_ptr<BaseAST>($2);
     $$ = ast;
   }
   ;
@@ -581,6 +643,12 @@ ConstDef
     auto ast = new ConstDef();
     ast->ident = *unique_ptr<string>($1);
     ast->const_initval = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  } | IDENT '[' ConstExp ']' ASSIGN ConstInitVal {
+    auto ast = new ConstDef();
+    ast->ident = *unique_ptr<string>($1);
+    ast->const_exp = unique_ptr<BaseAST>($3);
+    ast->const_initval = unique_ptr<BaseAST>($6);
     $$ = ast;
   }
   ;

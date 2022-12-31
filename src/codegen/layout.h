@@ -2,7 +2,7 @@
 
 #include <string>
 
-#define STKSIZE 256
+#define STKSIZE 30000
 #define RASTKOFF 0
 #define ARGSTKOFF 4
 #define STKOFF 48

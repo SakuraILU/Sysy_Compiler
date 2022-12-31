@@ -21,6 +21,8 @@ private:
 
     void get_reg(koopa_raw_store_t store, std::string &reg);
 
+    bool inReljumpRange(int dist) { return dist <= 2047 && dist >= -2048; }
+
 public:
     InstrHandler();
 
@@ -41,4 +43,6 @@ public:
     void call_handler(const koopa_raw_value_kind_t &kind);
 
     void galloc_handler(const koopa_raw_value_t &value);
+
+    void getelemptr_handler(const koopa_raw_value_kind_t &kind);
 };
